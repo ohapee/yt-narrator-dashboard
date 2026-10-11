@@ -11,6 +11,7 @@ Cloudflare Workers と静的アセット配信（Assets）を採用しており�
 | 項目 | 接続先URL | 説明 |
 | :--- | :--- | :--- |
 | **🎬 管理ダッシュボード（本番公開版）** | **[https://yt-narrator-dashboard.eiichi-okamine.workers.dev](https://yt-narrator-dashboard.eiichi-okamine.workers.dev)** | ブラウザから今すぐ利用できる本番Web管理画面 |
+| **🐙 GitHub リポジトリ** | **[https://github.com/ohapee/yt-narrator-dashboard](https://github.com/ohapee/yt-narrator-dashboard)** | ソースコードおよび最新ドキュメント |
 | **📁 対象Google Driveフォルダ** | **[yt-narrator (Google Drive)](https://drive.google.com/drive/folders/1Q2EneDppL5P92Efk8BU5onQD4O8c9SS3)** | 管理対象の元データフォルダ |
 | **💻 ローカル開発プレビュー** | `http://localhost:8787` | PC手元でのローカル開発時URL |
 
