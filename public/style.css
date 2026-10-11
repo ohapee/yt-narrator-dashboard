@@ -155,6 +155,7 @@ body {
 }
 
 .stat-success .stat-value { color: var(--success); }
+.stat-audio .stat-value { color: #10b981; }
 .stat-warning .stat-value { color: var(--warning); }
 .stat-info .stat-value { color: var(--info); }
 

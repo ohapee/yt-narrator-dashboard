@@ -183,6 +183,8 @@ export default {
 
               const hasNarration = files.some(f => f.name === "narration_tts.txt");
               const hasYoutube = files.some(f => f.name === "youtube.json");
+              const audioFile = files.find(f => f.name === "narration_tts.mp3" || f.name === "narration.mp3");
+              const hasAudio = !!audioFile;
               const mangaDoneFile = files.find(f => f.name === "manga_done.json");
               const titleDoneFile = files.find(f => f.name === "title_done.json");
 
@@ -214,6 +216,9 @@ export default {
                 mangaCount: mangaImages.length,
                 titleCount: titleImages.length,
                 hasNarration,
+                hasAudio,
+                audioFileId: audioFile?.id || "",
+                audioFileSize: audioFile?.size ? Number(audioFile.size) : 0,
                 hasYoutube,
                 hasMetadata: !!mangaDoneFile,
                 hasTitle: titleImages.length > 0,
@@ -274,6 +279,7 @@ export default {
           .sort((a, b) => a.name.localeCompare(b.name));
 
         const narrationFile = files.find(f => f.name === "narration_tts.txt");
+        const audioFile = files.find(f => f.name === "narration_tts.mp3" || f.name === "narration.mp3");
         const metadataFile = files.find(f => f.name === "manga_done.json");
         const titleDoneFile = files.find(f => f.name === "title_done.json");
         const youtubeFile = files.find(f => f.name === "youtube.json");
@@ -333,6 +339,13 @@ export default {
             url: `/api/image/${t.id}`
           })),
           narrationText,
+          hasAudio: !!audioFile,
+          audioFile: audioFile ? {
+            id: audioFile.id,
+            name: audioFile.name,
+            size: audioFile.size ? Number(audioFile.size) : 0,
+            url: `/api/audio/${audioFile.id}`
+          } : null,
           metadata: metadataJson,
           titleMetadata: titleJson,
           youtube: youtubeJson
@@ -357,6 +370,29 @@ export default {
         return new Response(imgRes.body, {
           headers: {
             "Content-Type": contentType,
+            "Cache-Control": "public, max-age=86400, s-maxage=86400",
+            ...corsHeaders
+          }
+        });
+      }
+
+      // ----------------------------------------------------
+      // 4-2. API: 音声プロキシ配信 (/api/audio/:fileId)
+      // ----------------------------------------------------
+      if (pathname.startsWith("/api/audio/")) {
+        const fileId = pathname.replace("/api/audio/", "").trim();
+        if (!fileId) return new Response("File ID Required", { status: 400 });
+
+        const audioRes = await driveFetch(`files/${fileId}?alt=media`, env);
+        if (!audioRes.ok) {
+          return new Response("Audio Not Found", { status: audioRes.status });
+        }
+
+        const contentType = audioRes.headers.get("content-type") || "audio/mpeg";
+        return new Response(audioRes.body, {
+          headers: {
+            "Content-Type": contentType,
+            "Accept-Ranges": "bytes",
             "Cache-Control": "public, max-age=86400, s-maxage=86400",
             ...corsHeaders
           }

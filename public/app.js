@@ -11,6 +11,7 @@ let currentMangaIndex = 0;
 // DOM 要素
 const statTotalProjects = document.getElementById("stat-total-projects");
 const statCompletedProjects = document.getElementById("stat-completed-projects");
+const statAudioProjects = document.getElementById("stat-audio-projects");
 const statPartialProjects = document.getElementById("stat-partial-projects");
 const statQueueStatus = document.getElementById("stat-queue-status");
 const statQueueDesc = document.getElementById("stat-queue-desc");
@@ -35,6 +36,16 @@ const modalDateBadge = document.getElementById("modal-date-badge");
 const modalMangaCount = document.getElementById("modal-manga-count");
 const modalTitleCount = document.getElementById("modal-title-count");
 const modalDriveLink = document.getElementById("modal-drive-link");
+const modalTabAudioBadge = document.getElementById("modal-tab-audio-badge");
+
+// Google Drive 登録済みナレーション音声要素
+const driveAudioBadge = document.getElementById("drive-audio-badge");
+const driveAudioDesc = document.getElementById("drive-audio-desc");
+const driveAudioActions = document.getElementById("drive-audio-actions");
+const driveAudioDownloadLink = document.getElementById("drive-audio-download-link");
+const driveAudioPlayerWrap = document.getElementById("drive-audio-player-wrap");
+const driveAudioElement = document.getElementById("drive-audio-element");
+const driveAudioEmptyWrap = document.getElementById("drive-audio-empty-wrap");
 
 // 漫画ビューア要素
 const mangaCurrentImage = document.getElementById("manga-current-image");
@@ -314,14 +325,19 @@ function updateOverview(data) {
 function updateStats() {
   let completedCount = 0;
   let partialCount = 0;
+  let audioCount = 0;
 
   allProjects.forEach(p => {
     if (p.status === "COMPLETED") completedCount++;
     else partialCount++;
+    if (p.hasAudio) audioCount++;
   });
 
   statCompletedProjects.textContent = `${completedCount} 件`;
   statPartialProjects.textContent = `${partialCount} 件`;
+  if (statAudioProjects) {
+    statAudioProjects.textContent = `${audioCount} 件`;
+  }
 }
 
 // ----------------------------------------------------
@@ -334,7 +350,16 @@ function applyFilters() {
 
   let filtered = allProjects.filter(p => {
     const matchQuery = !query || p.name.toLowerCase().includes(query);
-    const matchStatus = (statusVal === "all") || (p.status === statusVal);
+    let matchStatus = true;
+    if (statusVal === "COMPLETED") {
+      matchStatus = (p.status === "COMPLETED");
+    } else if (statusVal === "PARTIAL") {
+      matchStatus = (p.status !== "COMPLETED");
+    } else if (statusVal === "AUDIO_READY") {
+      matchStatus = !!p.hasAudio;
+    } else if (statusVal === "AUDIO_PENDING") {
+      matchStatus = !p.hasAudio;
+    }
     return matchQuery && matchStatus;
   });
 
@@ -368,6 +393,10 @@ function renderProjects(projects) {
       ? `<span class="badge badge-success">✅ 完備 (8コマ)</span>`
       : `<span class="badge badge-warning">⏳ 生成中 (${p.mangaCount}/8コマ)</span>`;
 
+    const audioBadge = p.hasAudio
+      ? `<span class="badge" style="background:#065f46; color:#34d399; font-weight:600; border:1px solid #059669;" title="Google Driveに narration_tts.mp3 が生成・保存されています">🎙️ 音声あり (MP3)</span>`
+      : `<span class="badge" style="background:#1e293b; color:#94a3b8; border:1px solid #334155;" title="ナレーション音声はまだ生成されていません">⏳ 音声未生成</span>`;
+
     const narrationBadge = p.hasNarration
       ? `<span class="badge badge-subtle">📝 原稿あり</span>`
       : `<span class="badge badge-subtle" style="opacity:0.5;">原稿なし</span>`;
@@ -385,11 +414,13 @@ function renderProjects(projects) {
           <div class="thumb-badges">
             ${p.titleCount > 0 ? `<span class="thumb-manga-badge" style="background:rgba(26,115,232,0.85);">🎨 表紙 ${p.titleCount}</span>` : ''}
             <span class="thumb-manga-badge">漫画 ${p.mangaCount}コマ</span>
+            ${p.hasAudio ? `<span class="thumb-manga-badge" style="background:rgba(16,185,129,0.9); font-weight:700;">🎙️ MP3</span>` : ''}
           </div>
         </div>
         <div class="project-content">
           <div class="project-badge-row">
             ${statusBadge}
+            ${audioBadge}
             ${narrationBadge}
             ${titleBadge}
             ${p.hasYoutube ? `<span class="badge-yt" title="作成元YouTube動画情報（youtube.json）あり">📺 元動画</span>` : ''}
@@ -464,6 +495,11 @@ async function openProjectDetail(projectId, projectName) {
 
 function renderProjectDetail(data, projectName) {
   resetTtsPlayer();
+  if (driveAudioElement) {
+    driveAudioElement.pause();
+    driveAudioElement.src = "";
+  }
+
   const images = data.mangaImages || [];
   const titles = data.titleImages || [];
   modalMangaCount.textContent = images.length;
@@ -478,6 +514,47 @@ function renderProjectDetail(data, projectName) {
   }
 
   modalDateBadge.textContent = `総ファイル数: ${data.files.length}`;
+
+  // 0. Google Drive 登録済みナレーション音声のセットアップ
+  if (data.hasAudio && data.audioFile) {
+    if (modalTabAudioBadge) {
+      modalTabAudioBadge.textContent = "MP3完備";
+      modalTabAudioBadge.className = "badge badge-success";
+      modalTabAudioBadge.classList.remove("hidden");
+    }
+    if (driveAudioBadge) {
+      driveAudioBadge.className = "badge badge-success";
+      driveAudioBadge.textContent = "✅ 登録済み (MP3)";
+    }
+    const sizeMb = data.audioFile.size ? `${(data.audioFile.size / (1024 * 1024)).toFixed(2)} MB` : "";
+    if (driveAudioDesc) {
+      driveAudioDesc.textContent = `ファイル名: ${data.audioFile.name}${sizeMb ? ` (${sizeMb})` : ""} - Google Driveからストリーミング再生・ダウンロード可能`;
+    }
+    if (driveAudioDownloadLink) {
+      driveAudioDownloadLink.href = data.audioFile.url;
+      driveAudioDownloadLink.setAttribute("download", data.audioFile.name || "narration_tts.mp3");
+    }
+    driveAudioActions?.classList.remove("hidden");
+    driveAudioPlayerWrap?.classList.remove("hidden");
+    if (driveAudioElement) {
+      driveAudioElement.src = data.audioFile.url;
+    }
+    driveAudioEmptyWrap?.classList.add("hidden");
+  } else {
+    if (modalTabAudioBadge) {
+      modalTabAudioBadge.classList.add("hidden");
+    }
+    if (driveAudioBadge) {
+      driveAudioBadge.className = "badge badge-warning";
+      driveAudioBadge.textContent = "⏳ 未生成";
+    }
+    if (driveAudioDesc) {
+      driveAudioDesc.textContent = "この案件フォルダには narration_tts.mp3 がまだ存在しません。";
+    }
+    driveAudioActions?.classList.add("hidden");
+    driveAudioPlayerWrap?.classList.add("hidden");
+    driveAudioEmptyWrap?.classList.remove("hidden");
+  }
 
   // 1. 漫画ビューアのセットアップ
   currentMangaIndex = 0;
@@ -584,6 +661,10 @@ window.selectMangaPage = function(index) {
 
 function closeModal() {
   resetTtsPlayer();
+  if (driveAudioElement) {
+    driveAudioElement.pause();
+    driveAudioElement.src = "";
+  }
   modalYoutubeBadge.classList.add("hidden");
   modalYoutubeLink.classList.add("hidden");
   narrationYoutubeSource.classList.add("hidden");

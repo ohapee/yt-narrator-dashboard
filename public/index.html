@@ -39,6 +39,11 @@
         <div class="stat-value" id="stat-completed-projects">-</div>
         <div class="stat-desc">全8コマ ＋ ナレーション原稿 ＋ 完了JSON</div>
       </div>
+      <div class="stat-card" style="border-left: 4px solid #10b981;">
+        <div class="stat-label">🎙️ 音声登録済み (MP3)</div>
+        <div class="stat-value" id="stat-audio-projects" style="color: #10b981;">-</div>
+        <div class="stat-desc">narration_tts.mp3 生成済み</div>
+      </div>
       <div class="stat-card stat-warning">
         <div class="stat-label">生成中 / 一部完了</div>
         <div class="stat-value" id="stat-partial-projects">-</div>
@@ -96,6 +101,8 @@
           <select id="status-filter">
             <option value="all">すべてのステータス</option>
             <option value="COMPLETED">✅ 完備（8コマ＋原稿）</option>
+            <option value="AUDIO_READY">🎙️ 音声あり (MP3生成済み)</option>
+            <option value="AUDIO_PENDING">⏳ 音声未生成 (MP3なし)</option>
             <option value="PARTIAL">⏳ 生成中 / 一部完了</option>
           </select>
           <select id="sort-select">
@@ -152,7 +159,7 @@
           <div class="modal-tabs">
             <button class="modal-tab-btn active" data-modaltab="manga-tab">🖼️ 8コマ漫画ビューア (<span id="modal-manga-count">0</span>)</button>
             <button class="modal-tab-btn" data-modaltab="title-tab">🎨 表紙・タイトルカード (<span id="modal-title-count">0</span>)</button>
-            <button class="modal-tab-btn" data-modaltab="narration-tab">🎙️ ナレーション原稿</button>
+            <button class="modal-tab-btn" data-modaltab="narration-tab">🎙️ ナレーション原稿 ＆ 音声 <span id="modal-tab-audio-badge" class="badge hidden" style="font-size:10px; padding:1px 6px; margin-left:4px;"></span></button>
             <button class="modal-tab-btn" data-modaltab="meta-tab">ℹ️ メタデータ・元動画情報</button>
           </div>
 
@@ -192,6 +199,40 @@
           <!-- 3. ナレーション原稿タブ -->
           <div id="narration-tab" class="modal-tab-content hidden">
             <div class="narration-container">
+              <!-- Google Drive 登録済み完成音声セクション -->
+              <div id="drive-audio-card" class="drive-audio-card" style="background: linear-gradient(135deg, #0f172a, #1e293b); border: 1px solid #334155; border-radius: 12px; padding: 16px 20px; margin-bottom: 20px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
+                  <div style="display: flex; align-items: center; gap: 12px;">
+                    <div style="font-size: 26px;" id="drive-audio-icon">🎙️</div>
+                    <div>
+                      <div style="display: flex; align-items: center; gap: 8px;">
+                        <span style="font-weight: 700; color: #f8fafc; font-size: 15px;">Google Drive 登録済みナレーション音声</span>
+                        <span id="drive-audio-badge" class="badge">確認中...</span>
+                      </div>
+                      <div id="drive-audio-desc" style="font-size: 12px; color: #94a3b8; margin-top: 3px;">
+                        フォルダ内の narration_tts.mp3 を直接再生できます
+                      </div>
+                    </div>
+                  </div>
+                  <div id="drive-audio-actions" class="hidden">
+                    <a id="drive-audio-download-link" href="#" target="_blank" download="narration_tts.mp3" class="btn btn-secondary btn-sm" style="display: inline-flex; align-items: center; gap: 6px; text-decoration: none;">
+                      💾 MP3をダウンロード
+                    </a>
+                  </div>
+                </div>
+
+                <!-- 音声プレイヤー (音声登録済みの場合) -->
+                <div id="drive-audio-player-wrap" class="hidden" style="margin-top: 14px; background: rgba(0,0,0,0.3); border-radius: 8px; padding: 10px;">
+                  <audio id="drive-audio-element" controls style="width: 100%; height: 40px;"></audio>
+                </div>
+
+                <!-- 音声未登録時の案内メッセージ -->
+                <div id="drive-audio-empty-wrap" class="hidden" style="margin-top: 12px; background: rgba(245, 158, 11, 0.08); border: 1px dashed rgba(245, 158, 11, 0.4); border-radius: 8px; padding: 10px 14px; font-size: 12px; color: #fbbf24; display: flex; align-items: center; gap: 8px;">
+                  <span>⏳</span>
+                  <span>この案件には完成音声（narration_tts.mp3）がまだ登録されていません。毎時00分の自動バッチで順次生成されるか、または下の「AI音声プレビュー生成」から即座に試聴・生成できます。</span>
+                </div>
+              </div>
+
               <!-- TTS音声合成コントロールパネル -->
               <div class="tts-control-panel">
                 <div class="tts-panel-header">
