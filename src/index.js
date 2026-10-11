@@ -404,7 +404,7 @@ export default {
       // ----------------------------------------------------
       if (pathname === "/api/tts" && request.method === "POST") {
         const body = await request.json();
-        const { text, voice = "ja-JP-NanamiNeural", speed = 1.0 } = body;
+        const { engine = "edge", text, voice, speed = 1.0, caption } = body;
 
         if (!text || !text.trim()) {
           return new Response(JSON.stringify({ error: "読み上げテキストが入力されていません。" }), {
@@ -413,39 +413,56 @@ export default {
           });
         }
 
-        const modalUrl = env.MODAL_TTS_URL || "https://ohapee--irodori-tts-service-web.modal.run";
-        const targetEndpoint = `${modalUrl.replace(/\/$/, "")}/api/edge-tts`;
+        const modalUrl = (env.MODAL_TTS_URL || "https://ohapee--irodori-tts-service-web.modal.run").replace(/\/$/, "");
 
-        const edgePayload = {
-          text: text,
-          voice: voice,
-          speed: Number(speed) || 1.0,
-          pitch: 0.0
-        };
+        let targetEndpoint;
+        let payload;
 
-        const edgeRes = await fetch(targetEndpoint, {
+        if (engine === "irodori") {
+          // 国産Flow Matching音声合成モデル Irodori-TTS (NVIDIA T4 GPU)
+          targetEndpoint = `${modalUrl}/api/synthesize`;
+          payload = {
+            text: text,
+            voice: voice || "female-bright",
+            caption: caption || undefined,
+            speed: Number(speed) || 1.0,
+            format: "mp3"
+          };
+        } else {
+          // Microsoft Edge TTS (CPU即時実行・完全無料)
+          targetEndpoint = `${modalUrl}/api/edge-tts`;
+          payload = {
+            text: text,
+            voice: voice || "ja-JP-NanamiNeural",
+            speed: Number(speed) || 1.0,
+            pitch: 0.0
+          };
+        }
+
+        const ttsRes = await fetch(targetEndpoint, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(edgePayload)
+          body: JSON.stringify(payload)
         });
 
-        if (!edgeRes.ok) {
-          const errText = await edgeRes.text();
+        if (!ttsRes.ok) {
+          const errText = await ttsRes.text();
           return new Response(JSON.stringify({
-            error: `TTSサーバーエラー: ${errText}`
+            error: `TTSサーバーエラー (${engine}): ${errText}`
           }), {
-            status: edgeRes.status,
+            status: ttsRes.status,
             headers: { ...corsHeaders, "Content-Type": "application/json; charset=utf-8" }
           });
         }
 
-        const edgeData = await edgeRes.json();
+        const ttsData = await ttsRes.json();
         return new Response(JSON.stringify({
           success: true,
-          audioBase64: edgeData.audioBase64,
-          mimeType: edgeData.mimeType || "audio/mp3",
-          voice: edgePayload.voice,
-          speed: edgePayload.speed
+          audioBase64: ttsData.audioBase64,
+          mimeType: ttsData.mimeType || "audio/mp3",
+          engine: engine,
+          voice: payload.voice,
+          speed: payload.speed
         }), {
           headers: { ...corsHeaders, "Content-Type": "application/json; charset=utf-8" }
         });

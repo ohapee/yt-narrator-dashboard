@@ -54,6 +54,7 @@ const narrationDurationEst = document.getElementById("narration-duration-est");
 const copyNarrationBtn = document.getElementById("copy-narration-btn");
 
 // TTS（音声合成プレビュー）要素
+const ttsEngineSelect = document.getElementById("tts-engine-select");
 const ttsVoiceSelect = document.getElementById("tts-voice-select");
 const ttsSpeedSelect = document.getElementById("tts-speed-select");
 const ttsGenerateBtn = document.getElementById("tts-generate-btn");
@@ -65,6 +66,32 @@ const ttsDownloadBtn = document.getElementById("tts-download-btn");
 const ttsPlayerBox = document.getElementById("tts-player-box");
 const ttsAudioElement = document.getElementById("tts-audio-element");
 const ttsStatusMsg = document.getElementById("tts-status-msg");
+
+// エンジン別話者定義
+const TTS_VOICES_BY_ENGINE = {
+  irodori: [
+    { id: "female-bright", name: "明るく元気な若い女性（アナウンス調・推奨）" },
+    { id: "female-calm", name: "落ち着いた優しい大人の女性（穏やか）" },
+    { id: "smiling-fast", name: "微笑みながら少し早口（YouTubeショート推奨）" },
+    { id: "young-girl", name: "可愛らしくあどけない少女の声" },
+    { id: "neutral-voice", name: "中性的な声（自然でフラットな語り口）" },
+    { id: "female-whisper", name: "優しくささやくような女性（ウィスパー）" },
+    { id: "female-anime", name: "感情豊かで可愛らしいアニメ風の女性" },
+    { id: "male-calm", name: "落ち着いた深みのある男性アナウンサー" },
+    { id: "male-energetic", name: "ハキハキとした爽やかな男性" },
+    { id: "male-narrator", name: "重厚で渋いプロのドキュメンタリー男性" },
+    { id: "neutral-clear", name: "ニュートラルでクリアな機械アナウンス風" }
+  ],
+  edge: [
+    { id: "ja-JP-NanamiNeural", name: "七海（明るく自然な女性アナウンス・定番人気）" },
+    { id: "ja-JP-KeitaNeural", name: "啓太（落ち着いた自然な男性ナレーション・定番人気）" },
+    { id: "ja-JP-AoiNeural", name: "葵（感情豊かで表現力のある女性）" },
+    { id: "ja-JP-DaichiNeural", name: "大地（明瞭で聞き取りやすい男性解説）" },
+    { id: "ja-JP-MayuNeural", name: "真由（穏やかで優しい女性）" },
+    { id: "ja-JP-NaokiNeural", name: "直樹（爽やかで活力のある若い男性）" },
+    { id: "ja-JP-ShioriNeural", name: "詩織（落ち着いた大人の女性）" }
+  ]
+};
 
 let currentTtsAudioBlobUrl = null;
 let currentTtsAudioBlob = null;
@@ -154,6 +181,11 @@ function initEvents() {
   });
 
   // 音声合成（TTS）プレビュー操作
+  if (ttsEngineSelect) {
+    ttsEngineSelect.addEventListener("change", updateVoiceSelectOptions);
+  }
+  updateVoiceSelectOptions();
+
   ttsGenerateBtn.addEventListener("click", generateAiTts);
   ttsBrowserPlayBtn.addEventListener("click", playBrowserSpeech);
   ttsStopBtn.addEventListener("click", stopTts);
@@ -529,6 +561,15 @@ function resetTtsPlayer() {
   ttsStatusMsg.textContent = "";
 }
 
+function updateVoiceSelectOptions() {
+  if (!ttsVoiceSelect) return;
+  const engine = ttsEngineSelect ? ttsEngineSelect.value : "irodori";
+  const voices = TTS_VOICES_BY_ENGINE[engine] || TTS_VOICES_BY_ENGINE.irodori;
+  ttsVoiceSelect.innerHTML = voices.map((v, idx) => `
+    <option value="${v.id}" ${idx === 0 ? "selected" : ""}>${escapeHtml(v.name)}</option>
+  `).join("");
+}
+
 function showTtsStatus(message, type = "info") {
   ttsStatusMsg.className = `tts-status-msg ${type}`;
   ttsStatusMsg.textContent = message;
@@ -551,6 +592,7 @@ async function generateAiTts() {
   stopTts();
   hideTtsStatus();
 
+  const engine = ttsEngineSelect ? ttsEngineSelect.value : "irodori";
   const voice = ttsVoiceSelect.value;
   const speed = parseFloat(ttsSpeedSelect.value) || 1.0;
 
@@ -558,13 +600,18 @@ async function generateAiTts() {
   ttsGenerateBtn.disabled = true;
   ttsBtnIcon.textContent = "⏳";
   ttsBtnText.textContent = "AI音声生成中...";
-  showTtsStatus("🎙️ Microsoft Edge TTS で高品質AI音声を生成しています...", "info");
+
+  if (engine === "irodori") {
+    showTtsStatus("🌸 国産AI Irodori-TTS (NVIDIA T4 GPU) で音声を生成しています...（初回は約10〜15秒）", "info");
+  } else {
+    showTtsStatus("⚡ Microsoft Edge TTS で高品質AI音声を生成しています...", "info");
+  }
 
   try {
     const res = await fetch("/api/tts", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text, voice, speed })
+      body: JSON.stringify({ engine, text, voice, speed })
     });
 
     const data = await res.json();
@@ -592,7 +639,8 @@ async function generateAiTts() {
     ttsDownloadBtn.classList.remove("hidden");
     ttsStopBtn.classList.remove("hidden");
 
-    showTtsStatus("✅ AI音声の生成が完了しました！自動再生を開始します。", "success");
+    const engineLabel = engine === "irodori" ? "🌸 Irodori-TTS" : "⚡ Edge TTS";
+    showTtsStatus(`✅ ${engineLabel} の音声生成が完了しました！自動再生を開始します。`, "success");
     await ttsAudioElement.play();
   } catch (err) {
     console.error("TTS生成エラー:", err);
@@ -668,7 +716,8 @@ function downloadTtsMp3() {
   }
 
   const projTitle = (modalTitle.textContent || "narration").replace(/[\\/:*?"<>|]/g, "_").trim();
-  const filename = `${projTitle}_narration.mp3`;
+  const engineTag = ttsEngineSelect && ttsEngineSelect.value === "irodori" ? "irodori" : "edge";
+  const filename = `${projTitle}_${engineTag}_tts.mp3`;
 
   const a = document.createElement("a");
   a.href = currentTtsAudioBlobUrl;
