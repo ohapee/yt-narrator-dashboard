@@ -167,13 +167,70 @@
           <!-- 3. ナレーション原稿タブ -->
           <div id="narration-tab" class="modal-tab-content hidden">
             <div class="narration-container">
+              <!-- TTS音声合成コントロールパネル -->
+              <div class="tts-control-panel">
+                <div class="tts-panel-header">
+                  <span class="tts-panel-title">🎙️ 音声合成（TTS）プレビュー</span>
+                  <span class="badge badge-success" style="font-size:11px;">完全無料・高品質AI音声</span>
+                </div>
+
+                <div class="tts-controls-row">
+                  <div class="tts-control-group">
+                    <label for="tts-voice-select">話者（声色）:</label>
+                    <select id="tts-voice-select">
+                      <option value="ja-JP-NanamiNeural" selected>七海（明るく自然な女性アナウンス・定番人気）</option>
+                      <option value="ja-JP-KeitaNeural">啓太（落ち着いた自然な男性ナレーション・定番人気）</option>
+                      <option value="ja-JP-AoiNeural">葵（感情豊かで表現力のある女性）</option>
+                      <option value="ja-JP-DaichiNeural">大地（明瞭で聞き取りやすい男性解説）</option>
+                      <option value="ja-JP-MayuNeural">真由（穏やかで優しい女性）</option>
+                      <option value="ja-JP-NaokiNeural">直樹（爽やかで活力のある若い男性）</option>
+                      <option value="ja-JP-ShioriNeural">詩織（落ち着いた大人の女性）</option>
+                    </select>
+                  </div>
+
+                  <div class="tts-control-group">
+                    <label for="tts-speed-select">再生速度:</label>
+                    <select id="tts-speed-select">
+                      <option value="0.9">0.9x（ややゆっくり）</option>
+                      <option value="1.0" selected>1.0x（標準速度）</option>
+                      <option value="1.1">1.1x（テンポよく）</option>
+                      <option value="1.25">1.25x（早口・ショート向け推奨）</option>
+                      <option value="1.5">1.5x（高速）</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div class="tts-buttons-row">
+                  <button type="button" id="tts-generate-btn" class="btn btn-primary btn-sm">
+                    <span id="tts-btn-icon">▶️</span> <span id="tts-btn-text">AI音声プレビュー生成</span>
+                  </button>
+                  <button type="button" id="tts-browser-play-btn" class="btn btn-secondary btn-sm" title="ブラウザ標準の音声合成で即座に読み上げます（待機時間0秒）">
+                    ⚡ 即時プレビュー（ブラウザ音声）
+                  </button>
+                  <button type="button" id="tts-stop-btn" class="btn btn-secondary btn-sm hidden">
+                    ⏹️ 停止
+                  </button>
+                  <button type="button" id="tts-download-btn" class="btn btn-secondary btn-sm hidden">
+                    💾 音声 (MP3) を保存
+                  </button>
+                </div>
+
+                <!-- 音声プレイヤー表示エリア -->
+                <div id="tts-player-box" class="tts-player-box hidden">
+                  <audio id="tts-audio-element" controls style="width: 100%;"></audio>
+                </div>
+                <div id="tts-status-msg" class="tts-status-msg hidden"></div>
+              </div>
+
+              <!-- 原稿操作バー -->
               <div class="narration-actions">
                 <div class="narration-info">
                   <span>文字数: <strong id="narration-char-count">0</strong> 文字</span>
                   <span class="tts-estimate">（読み上げ推定時間: 約 <strong id="narration-duration-est">0分00秒</strong>）</span>
                 </div>
-                <button id="copy-narration-btn" class="btn btn-primary btn-sm">📋 原稿をコピー</button>
+                <button id="copy-narration-btn" class="btn btn-secondary btn-sm">📋 原稿をコピー</button>
               </div>
+
               <textarea id="narration-text-area" readonly placeholder="ナレーション原稿がありません"></textarea>
             </div>
           </div>

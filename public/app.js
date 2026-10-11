@@ -53,6 +53,22 @@ const narrationCharCount = document.getElementById("narration-char-count");
 const narrationDurationEst = document.getElementById("narration-duration-est");
 const copyNarrationBtn = document.getElementById("copy-narration-btn");
 
+// TTS（音声合成プレビュー）要素
+const ttsVoiceSelect = document.getElementById("tts-voice-select");
+const ttsSpeedSelect = document.getElementById("tts-speed-select");
+const ttsGenerateBtn = document.getElementById("tts-generate-btn");
+const ttsBtnIcon = document.getElementById("tts-btn-icon");
+const ttsBtnText = document.getElementById("tts-btn-text");
+const ttsBrowserPlayBtn = document.getElementById("tts-browser-play-btn");
+const ttsStopBtn = document.getElementById("tts-stop-btn");
+const ttsDownloadBtn = document.getElementById("tts-download-btn");
+const ttsPlayerBox = document.getElementById("tts-player-box");
+const ttsAudioElement = document.getElementById("tts-audio-element");
+const ttsStatusMsg = document.getElementById("tts-status-msg");
+
+let currentTtsAudioBlobUrl = null;
+let currentTtsAudioBlob = null;
+
 // メタデータ要素
 const metaSynopsis = document.getElementById("meta-synopsis");
 const metaFileList = document.getElementById("meta-file-list");
@@ -134,6 +150,24 @@ function initEvents() {
         copyNarrationBtn.textContent = "✅ コピーしました！";
         setTimeout(() => copyNarrationBtn.textContent = "📋 原稿をコピー", 2000);
       });
+    }
+  });
+
+  // 音声合成（TTS）プレビュー操作
+  ttsGenerateBtn.addEventListener("click", generateAiTts);
+  ttsBrowserPlayBtn.addEventListener("click", playBrowserSpeech);
+  ttsStopBtn.addEventListener("click", stopTts);
+  ttsDownloadBtn.addEventListener("click", downloadTtsMp3);
+
+  ttsAudioElement.addEventListener("play", () => {
+    ttsStopBtn.classList.remove("hidden");
+  });
+  ttsAudioElement.addEventListener("ended", () => {
+    ttsStopBtn.classList.add("hidden");
+  });
+  ttsAudioElement.addEventListener("pause", () => {
+    if (window.speechSynthesis && !window.speechSynthesis.speaking) {
+      ttsStopBtn.classList.add("hidden");
     }
   });
 }
@@ -342,6 +376,7 @@ async function openProjectDetail(projectId, projectName) {
 }
 
 function renderProjectDetail(data, projectName) {
+  resetTtsPlayer();
   const images = data.mangaImages || [];
   const titles = data.titleImages || [];
   modalMangaCount.textContent = images.length;
@@ -458,8 +493,189 @@ window.selectMangaPage = function(index) {
 };
 
 function closeModal() {
+  resetTtsPlayer();
   projectModal.classList.add("hidden");
   currentProjectDetail = null;
+}
+
+// ----------------------------------------------------
+// 音声合成（TTS）プレビュー制御
+// ----------------------------------------------------
+function resetTtsPlayer() {
+  // 再生停止
+  stopTts();
+
+  // Blob URL解放
+  if (currentTtsAudioBlobUrl) {
+    URL.revokeObjectURL(currentTtsAudioBlobUrl);
+    currentTtsAudioBlobUrl = null;
+  }
+  currentTtsAudioBlob = null;
+
+  // プレイヤー非表示
+  ttsAudioElement.removeAttribute("src");
+  ttsPlayerBox.classList.add("hidden");
+  ttsDownloadBtn.classList.add("hidden");
+  ttsStopBtn.classList.add("hidden");
+
+  // ボタンローディング解除
+  ttsGenerateBtn.disabled = false;
+  ttsBtnIcon.textContent = "▶️";
+  ttsBtnText.textContent = "AI音声プレビュー生成";
+  ttsBrowserPlayBtn.disabled = false;
+
+  // ステータスメッセージ非表示
+  ttsStatusMsg.className = "tts-status-msg hidden";
+  ttsStatusMsg.textContent = "";
+}
+
+function showTtsStatus(message, type = "info") {
+  ttsStatusMsg.className = `tts-status-msg ${type}`;
+  ttsStatusMsg.textContent = message;
+  ttsStatusMsg.classList.remove("hidden");
+}
+
+function hideTtsStatus() {
+  ttsStatusMsg.className = "tts-status-msg hidden";
+  ttsStatusMsg.textContent = "";
+}
+
+async function generateAiTts() {
+  const text = narrationTextArea.value ? narrationTextArea.value.trim() : "";
+  if (!text) {
+    alert("ナレーション原稿がありません。");
+    return;
+  }
+
+  // 既存の再生を停止
+  stopTts();
+  hideTtsStatus();
+
+  const voice = ttsVoiceSelect.value;
+  const speed = parseFloat(ttsSpeedSelect.value) || 1.0;
+
+  // ボタンをローディング表示に
+  ttsGenerateBtn.disabled = true;
+  ttsBtnIcon.textContent = "⏳";
+  ttsBtnText.textContent = "AI音声生成中...";
+  showTtsStatus("🎙️ Microsoft Edge TTS で高品質AI音声を生成しています...", "info");
+
+  try {
+    const res = await fetch("/api/tts", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text, voice, speed })
+    });
+
+    const data = await res.json();
+    if (!res.ok || !data.success) {
+      throw new Error(data.error || "音声の生成に失敗しました");
+    }
+
+    // Base64からBlob URLを作成
+    const byteCharacters = atob(data.audioBase64);
+    const byteNumbers = new Uint8Array(byteCharacters.length);
+    for (let i = 0; i < byteCharacters.length; i++) {
+      byteNumbers[i] = byteCharacters.charCodeAt(i);
+    }
+    const blob = new Blob([byteNumbers], { type: data.mimeType || "audio/mp3" });
+    currentTtsAudioBlob = blob;
+
+    if (currentTtsAudioBlobUrl) {
+      URL.revokeObjectURL(currentTtsAudioBlobUrl);
+    }
+    currentTtsAudioBlobUrl = URL.createObjectURL(blob);
+
+    // オーディオプレイヤーに設定して再生
+    ttsAudioElement.src = currentTtsAudioBlobUrl;
+    ttsPlayerBox.classList.remove("hidden");
+    ttsDownloadBtn.classList.remove("hidden");
+    ttsStopBtn.classList.remove("hidden");
+
+    showTtsStatus("✅ AI音声の生成が完了しました！自動再生を開始します。", "success");
+    await ttsAudioElement.play();
+  } catch (err) {
+    console.error("TTS生成エラー:", err);
+    showTtsStatus(`❌ 音声生成エラー: ${err.message}`, "error");
+  } finally {
+    ttsGenerateBtn.disabled = false;
+    ttsBtnIcon.textContent = "▶️";
+    ttsBtnText.textContent = "AI音声プレビュー生成";
+  }
+}
+
+function playBrowserSpeech() {
+  const text = narrationTextArea.value ? narrationTextArea.value.trim() : "";
+  if (!text) {
+    alert("ナレーション原稿がありません。");
+    return;
+  }
+
+  if (!("speechSynthesis" in window)) {
+    alert("お使いのブラウザはWeb Speech APIに対応していません。AI音声生成をご利用ください。");
+    return;
+  }
+
+  stopTts();
+  hideTtsStatus();
+
+  const utterance = new SpeechSynthesisUtterance(text);
+  utterance.lang = "ja-JP";
+  utterance.rate = parseFloat(ttsSpeedSelect.value) || 1.0;
+
+  // 日本語ボイスを探す
+  const voices = window.speechSynthesis.getVoices();
+  const jaVoice = voices.find(v => v.lang === "ja-JP" || v.lang === "ja_JP");
+  if (jaVoice) {
+    utterance.voice = jaVoice;
+  }
+
+  utterance.onstart = () => {
+    ttsStopBtn.classList.remove("hidden");
+    showTtsStatus("⚡ ブラウザ標準音声で即時プレビュー再生中...", "info");
+  };
+
+  utterance.onend = () => {
+    ttsStopBtn.classList.add("hidden");
+    hideTtsStatus();
+  };
+
+  utterance.onerror = (e) => {
+    console.error("SpeechSynthesis error:", e);
+    ttsStopBtn.classList.add("hidden");
+    showTtsStatus("ブラウザ音声の再生が終了または中断されました", "info");
+  };
+
+  window.speechSynthesis.speak(utterance);
+}
+
+function stopTts() {
+  if (window.speechSynthesis && window.speechSynthesis.speaking) {
+    window.speechSynthesis.cancel();
+  }
+  if (ttsAudioElement) {
+    ttsAudioElement.pause();
+    ttsAudioElement.currentTime = 0;
+  }
+  ttsStopBtn.classList.add("hidden");
+  hideTtsStatus();
+}
+
+function downloadTtsMp3() {
+  if (!currentTtsAudioBlobUrl) {
+    alert("ダウンロード可能な音声データがありません。先にAI音声を生成してください。");
+    return;
+  }
+
+  const projTitle = (modalTitle.textContent || "narration").replace(/[\\/:*?"<>|]/g, "_").trim();
+  const filename = `${projTitle}_narration.mp3`;
+
+  const a = document.createElement("a");
+  a.href = currentTtsAudioBlobUrl;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
 }
 
 // ----------------------------------------------------

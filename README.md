@@ -22,12 +22,12 @@ Cloudflare Workers と静的アセット配信（Assets）を採用しており�
 ```mermaid
 flowchart TD
     subgraph Client["【ユーザー環境】"]
-        Browser["Webブラウザ (PC / スマホ)\n・案件一覧 ＆ 進行ステータスの確認\n・8コマ漫画スライド ＆ 表紙カード閲覧\n・ナレーション原稿確認 ＆ コピー\n・URL処理キューの進捗確認"]
+        Browser["Webブラウザ (PC / スマホ)\n・案件一覧 ＆ 進行ステータスの確認\n・8コマ漫画スライド ＆ 表紙カード閲覧\n・ナレーション原稿確認 ＆ コピー\n・🎙️ 音声合成(TTS)プレビュー & MP3保存\n・URL処理キューの進捗確認"]
     end
 
     subgraph Cloudflare["【管理サーバー】Cloudflare Workers"]
         CF_Static["静的アセット配信 (Assets)\n・HTML / CSS / JavaScript (UI)"]
-        CF_API["APIゲートウェイ\n・/api/overview (全体サマリー)\n・/api/projects (案件一覧 & コマ数)\n・/api/project/:id (詳細データ取得)\n・/api/image/:id (画像プロキシ配信)\n・/api/queues (キューファイル解析)"]
+        CF_API["APIゲートウェイ\n・/api/overview (全体サマリー)\n・/api/projects (案件一覧 & コマ数)\n・/api/project/:id (詳細データ取得)\n・/api/image/:id (画像プロキシ配信)\n・/api/queues (キューファイル解析)\n・/api/tts (音声合成リレー配信)"]
     end
 
     subgraph GoogleDrive["【成果物ストレージ】Google Drive (yt-narrator)"]
@@ -35,9 +35,14 @@ flowchart TD
         LinksFolder["yt-links/ フォルダ (処理キュー)\n・未処理キュー (投入URLリスト)\n・処理済アーカイブ記録"]
     end
 
-    Browser <-->|"画面表示 / 操作"| CF_Static
-    Browser <-->|"データ・画像取得"| CF_API
+    subgraph ModalTTS["【TTS音声サーバー】Modal (Irodori/Edge TTS)"]
+        TTS_API["Edge TTS サービス\n・Microsoft ニューラル音声エンジン\n・7種の話者（七海、啓太等）\n・Base64 MP3音声生成 (完全無料)"]
+    end
+
+    Browser <-->|"画面表示 / 操作 / 音声再生"| CF_Static
+    Browser <-->|"データ・画像・TTS取得"| CF_API
     CF_API <-->|"OAuth 2.0 (トークン自動更新)"| GoogleDrive
+    CF_API <-->|"高速リレー通信"| ModalTTS
 ```
 
 ### 通信フローと特徴
@@ -45,7 +50,9 @@ flowchart TD
    Cloudflare Workers 内部でリフレッシュトークンを用いて有効期限付きアクセストークンを自動取得・キャッシュします。
 2. **高画質画像プロキシ配信**:  
    Google Drive 内の縦型漫画画像やタイトルカード画像を、Cloudflare Workers が直接ブラウザ向けに安全にプロキシ配信（HTTPキャッシュ付き）するため、ログイン認証なしでサクサク閲覧できます。
-3. **サーバー代完全0円**:  
+3. **高品質AI音声合成（TTS）連携**:  
+   ナレーション原稿をその場でMicrosoft Edge TTSの自然な日本語ニューラル音声で試聴可能。ブラウザ即時プレビュー（待機0秒）とワンクリックMP3保存にも対応しています。
+4. **サーバー代完全0円**:  
    待機費用やサーバー維持費は一切かからず、完全無料で運用できます。
 
 ---
@@ -64,9 +71,16 @@ flowchart TD
    - 自動生成された複数のタイトルカードバリエーション（`00_title_final.jpg` 等）を一覧表示し、拡大確認可能。
 5. **ナレーション原稿ビューア ＆ 文字数・尺計算**
    - 読み上げ原稿（`narration_tts.txt`）の全文表示、文字数カウント、音声読み上げ時の推定所要時間（1分350文字換算）を自動計算。ワンクリックコピーにも対応。
-6. **インクリメンタル検索 ＆ 絞り込み**
+6. **🎙️ 音声合成（TTS）プレビュー ＆ MP3ダウンロード保存（新機能！）**
+   - **高品質AI音声生成（Microsoft Edge TTS）**:
+     - 7種類の上質な日本語話者（七海、啓太、葵、大地、真由、直樹、詩織）から自由に声色を選択可能。
+     - 再生速度（0.9x〜1.5x、ショート動画向け早口推奨など）の調整に対応。
+     - 生成された自然なAIナレーション音声をブラウザ上で即座に試聴＆**MP3ファイルとしてワンクリック保存**が可能。
+   - **⚡ 即時プレビュー（Web Speech API）**:
+     - サーバー通信を待たずに即座にブラウザ標準音声で原稿全体のテンポや尺感をチェック可能（待機時間0秒）。
+7. **インクリメンタル検索 ＆ 絞り込み**
    - 案件名、チャンネル名、キーワードでの即時検索、ステータス別（完備のみ／生成中のみ）の絞り込み、並び順変更に対応。
-7. **URL処理キュー（yt-links）履歴ビューア**
+8. **URL処理キュー（yt-links）履歴ビューア**
    - 処理待ちのYouTubeリンクや、過去の処理済みアーカイブ内容を一覧確認可能。
 
 ---
@@ -75,10 +89,10 @@ flowchart TD
 
 | ファイル名 / フォルダ | 役割・概要 |
 | :--- | :--- |
-| `src/index.js` | Cloudflare Workers API バックエンド（Google Drive API中継・画像プロキシ・トークン管理） |
-| `public/index.html` | メイン画面（サマリー表示、ギャラリー、漫画スライダー、原稿ビューア） |
-| `public/style.css` | 直感的で美しい日本語UIスタイルシート（レスポンシブ対応） |
-| `public/app.js` | クライアント側データフェッチ、絞り込み、スライダー操作スクリプト |
+| `src/index.js` | Cloudflare Workers API バックエンド（Google Drive API中継・画像プロキシ・トークン自動管理・TTSリレー） |
+| `public/index.html` | メイン画面（サマリー表示、ギャラリー、漫画スライダー、原稿ビューア、TTSコントロールパネル） |
+| `public/style.css` | 直感的で美しい日本語UIスタイルシート（レスポンシブ対応・TTSプレイヤー対応） |
+| `public/app.js` | クライアント側制御スクリプト（データ取得、漫画スライダー、Edge TTS & ブラウザ音声再生、MP3保存） |
 | `wrangler.json` | Cloudflare Workers & Assets 設定ファイル |
 | `package.json` | プロジェクト定義およびデプロイスクリプト |
 | `.env.example` | 環境変数の設定サンプル |

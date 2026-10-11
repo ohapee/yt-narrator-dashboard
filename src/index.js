@@ -71,7 +71,7 @@ export default {
     // CORS ヘッダー
     const corsHeaders = {
       "Access-Control-Allow-Origin": "*",
-      "Access-Control-Allow-Methods": "GET, OPTIONS",
+      "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
       "Access-Control-Allow-Headers": "Content-Type"
     };
 
@@ -400,7 +400,59 @@ export default {
       }
 
       // ----------------------------------------------------
-      // 6. 静的アセット（HTML / CSS / JS）の配信
+      // 6. API: 音声合成プレビュー (/api/tts)
+      // ----------------------------------------------------
+      if (pathname === "/api/tts" && request.method === "POST") {
+        const body = await request.json();
+        const { text, voice = "ja-JP-NanamiNeural", speed = 1.0 } = body;
+
+        if (!text || !text.trim()) {
+          return new Response(JSON.stringify({ error: "読み上げテキストが入力されていません。" }), {
+            status: 400,
+            headers: { ...corsHeaders, "Content-Type": "application/json; charset=utf-8" }
+          });
+        }
+
+        const modalUrl = env.MODAL_TTS_URL || "https://ohapee--irodori-tts-service-web.modal.run";
+        const targetEndpoint = `${modalUrl.replace(/\/$/, "")}/api/edge-tts`;
+
+        const edgePayload = {
+          text: text,
+          voice: voice,
+          speed: Number(speed) || 1.0,
+          pitch: 0.0
+        };
+
+        const edgeRes = await fetch(targetEndpoint, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(edgePayload)
+        });
+
+        if (!edgeRes.ok) {
+          const errText = await edgeRes.text();
+          return new Response(JSON.stringify({
+            error: `TTSサーバーエラー: ${errText}`
+          }), {
+            status: edgeRes.status,
+            headers: { ...corsHeaders, "Content-Type": "application/json; charset=utf-8" }
+          });
+        }
+
+        const edgeData = await edgeRes.json();
+        return new Response(JSON.stringify({
+          success: true,
+          audioBase64: edgeData.audioBase64,
+          mimeType: edgeData.mimeType || "audio/mp3",
+          voice: edgePayload.voice,
+          speed: edgePayload.speed
+        }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json; charset=utf-8" }
+        });
+      }
+
+      // ----------------------------------------------------
+      // 7. 静的アセット（HTML / CSS / JS）の配信
       // ----------------------------------------------------
       if (env.ASSETS) {
         return env.ASSETS.fetch(request);
