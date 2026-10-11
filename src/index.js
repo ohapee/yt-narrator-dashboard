@@ -506,7 +506,25 @@ export default {
       }
 
       // ----------------------------------------------------
-      // 7. 静的アセット（HTML / CSS / JS）の配信
+      // 7. API: 定期ナレーション生成 手動実行・確認 (/api/cron/process-narration)
+      // ----------------------------------------------------
+      if (pathname === "/api/cron/process-narration" && (request.method === "POST" || request.method === "GET")) {
+        const countParam = url.searchParams.get("count");
+        const maxCount = countParam ? parseInt(countParam, 10) : 4;
+        const summary = await processHourlyNarration(env, maxCount);
+        return new Response(JSON.stringify({ success: true, ...summary }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json; charset=utf-8" }
+        });
+      }
+
+      if (pathname === "/api/cron/status" && request.method === "GET") {
+        return new Response(JSON.stringify({ success: true, ...lastCronResult }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json; charset=utf-8" }
+        });
+      }
+
+      // ----------------------------------------------------
+      // 8. 静的アセット（HTML / CSS / JS）の配信
       // ----------------------------------------------------
       if (env.ASSETS) {
         return env.ASSETS.fetch(request);
@@ -523,5 +541,231 @@ export default {
         headers: { ...corsHeaders, "Content-Type": "application/json; charset=utf-8" }
       });
     }
+  },
+
+  /**
+   * Cloudflare Cron Trigger (毎時00分に自動実行)
+   */
+  async scheduled(event, env, ctx) {
+    console.log(`[Cron Trigger] 定期スケジュール起動 (cron: ${event.cron})`);
+    ctx.waitUntil(processHourlyNarration(env, 4));
   }
 };
+
+// ---------------------------------------------------------------------------
+// 定期ナレーション自動生成バッチ処理 (Google Drive ＆ Edge-TTS)
+// ---------------------------------------------------------------------------
+let lastCronResult = {
+  status: "idle",
+  lastRun: null,
+  summary: null
+};
+
+/**
+ * Google Drive へ MP3 ファイルをマルチパートアップロードする
+ */
+async function uploadMp3ToDrive(folderId, fileName, mp3Uint8Array, env) {
+  const token = await getAccessToken(env);
+  const boundary = "-------314159265358979323846";
+  const delimiter = `\r\n--${boundary}\r\n`;
+  const closeDelimiter = `\r\n--${boundary}--`;
+
+  const metadata = {
+    name: fileName,
+    parents: [folderId],
+    mimeType: "audio/mp3"
+  };
+
+  const metadataPart = `${delimiter}Content-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(metadata)}\r\n`;
+  const mediaHeader = `--${boundary}\r\nContent-Type: audio/mp3\r\n\r\n`;
+
+  const encoder = new TextEncoder();
+  const part1 = encoder.encode(metadataPart);
+  const part2 = encoder.encode(mediaHeader);
+  const part3 = mp3Uint8Array;
+  const part4 = encoder.encode(closeDelimiter);
+
+  const totalLength = part1.length + part2.length + part3.length + part4.length;
+  const body = new Uint8Array(totalLength);
+  let offset = 0;
+  body.set(part1, offset); offset += part1.length;
+  body.set(part2, offset); offset += part2.length;
+  body.set(part3, offset); offset += part3.length;
+  body.set(part4, offset);
+
+  const res = await fetch("https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": `multipart/related; boundary=${boundary}`,
+      "Content-Length": String(totalLength)
+    },
+    body: body
+  });
+
+  if (!res.ok) {
+    const errText = await res.text();
+    throw new Error(`Google Drive アップロード失敗 (${res.status}): ${errText}`);
+  }
+
+  return await res.json();
+}
+
+/**
+ * 1時間ごとの定期ナレーション生成バッチ
+ * projects フォルダ配下のサブフォルダを巡回し、narration_tts.txt があって narration_tts.mp3 が未生成のものを最大 maxFolders 件処理
+ */
+async function processHourlyNarration(env, maxFolders = 4) {
+  const startTime = Date.now();
+  console.log(`[Hourly Cron] ナレーション自動生成バッチ開始 (最大 ${maxFolders} フォルダ)...`);
+  lastCronResult.status = "running";
+
+  const projectsFolderId = env.PROJECTS_FOLDER_ID || "19qNS_wUoFOzDy646-ssSC0Y0nU34YhMf";
+  const modalUrl = (env.MODAL_TTS_URL || "https://ohapee--irodori-tts-service-web.modal.run").replace(/\/$/, "");
+
+  try {
+    // 1. projects フォルダ直下のサブフォルダ一覧を取得 (作成日時古い順)
+    const folderQuery = `'${projectsFolderId}' in parents and trashed = false and mimeType = 'application/vnd.google-apps.folder'`;
+    const foldersRes = await driveFetch(
+      `files?q=${encodeURIComponent(folderQuery)}&fields=files(id,name,createdTime)&orderBy=createdTime&pageSize=100`,
+      env
+    );
+    if (!foldersRes.ok) {
+      throw new Error(`projects フォルダのサブフォルダ一覧取得失敗: ${await foldersRes.text()}`);
+    }
+    const foldersData = await foldersRes.json();
+    const allSubFolders = foldersData.files || [];
+
+    console.log(`[Hourly Cron] 対象サブフォルダ総数: ${allSubFolders.length} 件`);
+
+    // 2. 未処理フォルダの選定 (narration_tts.txt があり、narration_tts.mp3 が無いもの)
+    const candidates = [];
+    for (const folder of allSubFolders) {
+      if (candidates.length >= maxFolders) break;
+
+      const filesQuery = `'${folder.id}' in parents and trashed = false`;
+      const fRes = await driveFetch(
+        `files?q=${encodeURIComponent(filesQuery)}&fields=files(id,name,size)&spaces=drive`,
+        env
+      );
+      if (!fRes.ok) continue;
+
+      const fData = await fRes.json();
+      const files = fData.files || [];
+
+      const narrationTxtFile = files.find(f => f.name === "narration_tts.txt");
+      const narrationMp3File = files.find(f => f.name === "narration_tts.mp3" || f.name === "narration.mp3");
+
+      if (narrationTxtFile && !narrationMp3File) {
+        candidates.push({
+          folderId: folder.id,
+          folderName: folder.name,
+          txtFileId: narrationTxtFile.id
+        });
+      }
+    }
+
+    console.log(`[Hourly Cron] 未処理候補抽出完了: ${candidates.length} 件`);
+    const results = [];
+
+    // 3. 候補フォルダごとに Edge-TTS 生成＆Drive アップロード
+    for (const item of candidates) {
+      const itemStart = Date.now();
+      try {
+        console.log(`[Hourly Cron] 処理開始: フォルダ「${item.folderName}」`);
+
+        // 3-1. narration_tts.txt の中身を取得
+        const txtRes = await driveFetch(`files/${item.txtFileId}?alt=media`, env);
+        if (!txtRes.ok) {
+          throw new Error(`原稿テキストのダウンロード失敗 (${txtRes.status})`);
+        }
+        const textContent = (await txtRes.text()).trim();
+
+        if (!textContent) {
+          throw new Error("原稿テキストが空です");
+        }
+
+        // 3-2. Modal Edge-TTS API 呼び出し (Nanami, 速度 1.3)
+        const edgePayload = {
+          text: textContent,
+          voice: "ja-JP-NanamiNeural",
+          speed: 1.3,
+          pitch: 0.0
+        };
+
+        const ttsRes = await fetch(`${modalUrl}/api/edge-tts`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(edgePayload)
+        });
+
+        if (!ttsRes.ok) {
+          const errText = await ttsRes.text();
+          throw new Error(`Edge-TTS API エラー (${ttsRes.status}): ${errText}`);
+        }
+
+        const ttsData = await ttsRes.json();
+        if (!ttsData.audioBase64) {
+          throw new Error("Edge-TTS から audioBase64 が返却されませんでした");
+        }
+
+        // 3-3. Base64 を Uint8Array にデコード
+        const binaryStr = atob(ttsData.audioBase64);
+        const mp3Bytes = new Uint8Array(binaryStr.length);
+        for (let i = 0; i < binaryStr.length; i++) {
+          mp3Bytes[i] = binaryStr.charCodeAt(i);
+        }
+
+        // 3-4. Google Drive へ narration_tts.mp3 として保存
+        const uploadRes = await uploadMp3ToDrive(item.folderId, "narration_tts.mp3", mp3Bytes, env);
+
+        const elapsed = ((Date.now() - itemStart) / 1000).toFixed(1);
+        console.log(`[Hourly Cron] ✅ 完了: 「${item.folderName}」 (${elapsed}秒, File ID: ${uploadRes.id})`);
+
+        results.push({
+          status: "success",
+          folderName: item.folderName,
+          folderId: item.folderId,
+          charCount: textContent.length,
+          fileId: uploadRes.id,
+          durationSec: elapsed
+        });
+      } catch (err) {
+        console.error(`[Hourly Cron] ❌ 失敗: 「${item.folderName}」: ${err.message}`);
+        results.push({
+          status: "error",
+          folderName: item.folderName,
+          folderId: item.folderId,
+          error: err.message
+        });
+      }
+    }
+
+    const totalElapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+    const summary = {
+      executedAt: new Date().toISOString(),
+      totalElapsedSec: totalElapsed,
+      candidatesCount: candidates.length,
+      successCount: results.filter(r => r.status === "success").length,
+      errorCount: results.filter(r => r.status === "error").length,
+      results: results
+    };
+
+    lastCronResult = {
+      status: "idle",
+      lastRun: new Date().toISOString(),
+      summary: summary
+    };
+
+    console.log(`[Hourly Cron] 全処理完了 (${totalElapsed}秒): 成功 ${summary.successCount} 件, エラー ${summary.errorCount} 件`);
+    return summary;
+  } catch (globalErr) {
+    console.error(`[Hourly Cron] 致命的エラー: ${globalErr.message}`);
+    lastCronResult = {
+      status: "error",
+      lastRun: new Date().toISOString(),
+      error: globalErr.message
+    };
+    throw globalErr;
+  }
+}

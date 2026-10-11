@@ -51,6 +51,28 @@
       </div>
     </section>
 
+    <!-- 1時間毎の自動ナレーション生成ステータスバー -->
+    <section class="cron-banner" style="background: linear-gradient(135deg, #1e293b, #0f172a); border: 1px solid #334155; border-radius: 12px; padding: 14px 20px; margin-bottom: 24px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
+      <div style="display: flex; align-items: center; gap: 12px;">
+        <span style="font-size: 24px;">🎙️</span>
+        <div>
+          <div style="font-weight: 600; color: #f8fafc; font-size: 14px; display: flex; align-items: center; gap: 8px;">
+            <span>1時間毎ナレーション自動生成 (Cloudflare Cron)</span>
+            <span class="status-badge" style="background: #065f46; color: #34d399; font-size: 11px; padding: 2px 8px; border-radius: 12px; font-weight: 600;">毎時00分稼働中 (4件/時)</span>
+          </div>
+          <div style="font-size: 12px; color: #94a3b8; margin-top: 2px;" id="cron-status-desc">
+            設定: Edge-TTS (Nanami / 速度 1.3x) ➔ 未処理フォルダの「narration_tts.txt」をMP3化してDriveへ保存
+          </div>
+        </div>
+      </div>
+      <div style="display: flex; align-items: center; gap: 10px;">
+        <button id="trigger-cron-btn" style="background: #2563eb; color: white; border: none; padding: 8px 16px; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 6px; box-shadow: 0 2px 4px rgba(0,0,0,0.2);">
+          <span id="trigger-cron-icon">⚡</span>
+          <span id="trigger-cron-text">今すぐ4件を手動実行</span>
+        </button>
+      </div>
+    </section>
+
     <!-- ナビゲーションタブ -->
     <nav class="nav-tabs">
       <button class="tab-btn active" data-tab="projects-view">

@@ -220,6 +220,42 @@ function initEvents() {
       ttsStopBtn.classList.add("hidden");
     }
   });
+
+  // 手動Cronトリガーボタン（1時間待たずに即時4件実行）
+  const triggerCronBtn = document.getElementById("trigger-cron-btn");
+  const triggerCronText = document.getElementById("trigger-cron-text");
+  const triggerCronIcon = document.getElementById("trigger-cron-icon");
+
+  if (triggerCronBtn) {
+    triggerCronBtn.addEventListener("click", async () => {
+      if (!confirm("未処理の案件フォルダから最大4件を抽出し、Edge-TTS (Nanami 1.3x) でナレーション音声を生成してGoogle Driveに保存します。\n実行しますか？")) {
+        return;
+      }
+
+      triggerCronBtn.disabled = true;
+      triggerCronIcon.textContent = "⏳";
+      triggerCronText.textContent = "音声生成＆アップロード中...";
+
+      try {
+        const res = await fetch("/api/cron/process-narration", { method: "POST" });
+        const data = await res.json();
+
+        if (data.success) {
+          const successList = (data.results || []).filter(r => r.status === "success").map(r => `・${r.folderName}`).join("\n");
+          alert(`🎉 ナレーション自動生成が完了しました！\n\n処理完了: ${data.successCount} 件 (所要時間: ${data.totalElapsedSec}秒)\n\n${successList || "（未処理フォルダはありませんでした）"}`);
+          loadData();
+        } else {
+          alert(`エラー: ${data.error || "バッチ実行に失敗しました"}`);
+        }
+      } catch (err) {
+        alert(`通信エラー: ${err.message}`);
+      } finally {
+        triggerCronBtn.disabled = false;
+        triggerCronIcon.textContent = "⚡";
+        triggerCronText.textContent = "今すぐ4件を手動実行";
+      }
+    });
+  }
 }
 
 // ----------------------------------------------------
