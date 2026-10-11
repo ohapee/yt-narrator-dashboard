@@ -435,9 +435,29 @@ export default {
 
         if (engine === "irodori") {
           // 国産Flow Matching音声合成モデル Irodori-TTS (NVIDIA T4 GPU)
+          // ※Irodori-TTSは1推論あたり最大30秒（約80〜100文字）に最適化されているため、
+          // 120文字を超える長文は早口・音声崩壊を防ぐために自然な文境界（句点「。」や改行）で切り出します。
+          let targetText = text.trim();
+          if (targetText.length > 120) {
+            const sentences = targetText.split(/(?<=[。！？\n])/);
+            let chunk = "";
+            for (const s of sentences) {
+              if ((chunk + s).length <= 100) {
+                chunk += s;
+              } else {
+                break;
+              }
+            }
+            if (chunk && chunk.length >= 15) {
+              targetText = chunk.trim();
+            } else {
+              targetText = targetText.slice(0, 90).replace(/[、\s]+$/, "") + "。";
+            }
+          }
+
           targetEndpoint = `${modalUrl}/api/synthesize`;
           payload = {
-            text: text,
+            text: targetText,
             voice: voice || "female-bright",
             caption: caption || undefined,
             speed: Number(speed) || 1.0,
@@ -477,7 +497,9 @@ export default {
           mimeType: ttsData.mimeType || "audio/mp3",
           engine: engine,
           voice: payload.voice,
-          speed: payload.speed
+          speed: payload.speed,
+          usedText: payload.text,
+          charCount: payload.text.length
         }), {
           headers: { ...corsHeaders, "Content-Type": "application/json; charset=utf-8" }
         });

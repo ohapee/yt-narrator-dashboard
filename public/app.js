@@ -636,6 +636,15 @@ function updateVoiceSelectOptions() {
   ttsVoiceSelect.innerHTML = voices.map((v, idx) => `
     <option value="${v.id}" ${idx === 0 ? "selected" : ""}>${escapeHtml(v.name)}</option>
   `).join("");
+
+  // ボタンの表記を微調整
+  if (ttsBtnText) {
+    if (engine === "irodori") {
+      ttsBtnText.textContent = "AI音声プレビュー生成（選択または冒頭）";
+    } else {
+      ttsBtnText.textContent = "AI音声プレビュー生成（全文）";
+    }
+  }
 }
 
 function showTtsStatus(message, type = "info") {
@@ -650,10 +659,24 @@ function hideTtsStatus() {
 }
 
 async function generateAiTts() {
-  const text = narrationTextArea.value ? narrationTextArea.value.trim() : "";
-  if (!text) {
+  const fullText = narrationTextArea.value ? narrationTextArea.value.trim() : "";
+  if (!fullText) {
     alert("ナレーション原稿がありません。");
     return;
+  }
+
+  // 1. テキストエリアで選択（ハイライト）されている範囲があるか確認
+  const selStart = narrationTextArea.selectionStart;
+  const selEnd = narrationTextArea.selectionEnd;
+  let textToSynthesize = fullText;
+  let isSelected = false;
+
+  if (selStart !== undefined && selEnd !== undefined && selEnd > selStart) {
+    const selected = narrationTextArea.value.substring(selStart, selEnd).trim();
+    if (selected.length > 0) {
+      textToSynthesize = selected;
+      isSelected = true;
+    }
   }
 
   // 既存の再生を停止
@@ -664,13 +687,37 @@ async function generateAiTts() {
   const voice = ttsVoiceSelect.value;
   const speed = parseFloat(ttsSpeedSelect.value) || 1.0;
 
+  // Irodori-TTS の場合、長文（120文字超）は句点で安全に冒頭文を切り出す
+  let isTrimmedForIrodori = false;
+  if (engine === "irodori" && textToSynthesize.length > 120) {
+    const sentences = textToSynthesize.split(/(?<=[。！？\n])/);
+    let chunk = "";
+    for (const s of sentences) {
+      if ((chunk + s).length <= 100) {
+        chunk += s;
+      } else {
+        break;
+      }
+    }
+    if (chunk && chunk.length >= 15) {
+      textToSynthesize = chunk.trim();
+    } else {
+      textToSynthesize = textToSynthesize.slice(0, 90).replace(/[、\s]+$/, "") + "。";
+    }
+    isTrimmedForIrodori = true;
+  }
+
   // ボタンをローディング表示に
   ttsGenerateBtn.disabled = true;
   ttsBtnIcon.textContent = "⏳";
   ttsBtnText.textContent = "AI音声生成中...";
 
   if (engine === "irodori") {
-    showTtsStatus("🌸 国産AI Irodori-TTS (NVIDIA T4 GPU) で音声を生成しています...（初回は約10〜15秒）", "info");
+    if (isSelected) {
+      showTtsStatus(`🌸 選択した文章（${textToSynthesize.length}文字）を Irodori-TTS (GPU) で生成しています...`, "info");
+    } else {
+      showTtsStatus(`🌸 冒頭の文章（${textToSynthesize.length}文字）を Irodori-TTS (GPU) で高音質生成しています...（初回は約10〜15秒）`, "info");
+    }
   } else {
     showTtsStatus("⚡ Microsoft Edge TTS で高品質AI音声を生成しています...", "info");
   }
@@ -679,7 +726,7 @@ async function generateAiTts() {
     const res = await fetch("/api/tts", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ engine, text, voice, speed })
+      body: JSON.stringify({ engine, text: textToSynthesize, voice, speed })
     });
 
     const data = await res.json();
@@ -707,8 +754,13 @@ async function generateAiTts() {
     ttsDownloadBtn.classList.remove("hidden");
     ttsStopBtn.classList.remove("hidden");
 
-    const engineLabel = engine === "irodori" ? "🌸 Irodori-TTS" : "⚡ Edge TTS";
-    showTtsStatus(`✅ ${engineLabel} の音声生成が完了しました！自動再生を開始します。`, "success");
+    if (engine === "irodori") {
+      const scopeLabel = isSelected ? "選択部分" : "冒頭部分";
+      showTtsStatus(`✅ 🌸 Irodori-TTS の音声生成が完了しました（${scopeLabel}・${data.charCount || textToSynthesize.length}文字）。自動再生を開始します。`, "success");
+    } else {
+      showTtsStatus(`✅ ⚡ Edge TTS の音声生成が完了しました！自動再生を開始します。`, "success");
+    }
+
     await ttsAudioElement.play();
   } catch (err) {
     console.error("TTS生成エラー:", err);
@@ -716,15 +768,28 @@ async function generateAiTts() {
   } finally {
     ttsGenerateBtn.disabled = false;
     ttsBtnIcon.textContent = "▶️";
-    ttsBtnText.textContent = "AI音声プレビュー生成";
+    if (engine === "irodori") {
+      ttsBtnText.textContent = "AI音声プレビュー生成（選択または冒頭）";
+    } else {
+      ttsBtnText.textContent = "AI音声プレビュー生成（全文）";
+    }
   }
 }
 
 function playBrowserSpeech() {
-  const text = narrationTextArea.value ? narrationTextArea.value.trim() : "";
-  if (!text) {
+  const fullText = narrationTextArea.value ? narrationTextArea.value.trim() : "";
+  if (!fullText) {
     alert("ナレーション原稿がありません。");
     return;
+  }
+
+  // 選択範囲があればそれを優先
+  const selStart = narrationTextArea.selectionStart;
+  const selEnd = narrationTextArea.selectionEnd;
+  let text = fullText;
+  if (selStart !== undefined && selEnd !== undefined && selEnd > selStart) {
+    const selected = narrationTextArea.value.substring(selStart, selEnd).trim();
+    if (selected.length > 0) text = selected;
   }
 
   if (!("speechSynthesis" in window)) {
