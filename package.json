@@ -1,0 +1,14 @@
+{
+  "name": "yt-narrator-dashboard",
+  "version": "1.0.0",
+  "description": "YouTube ナレーション・8コマ漫画自動生成プロジェクトの進捗・成果物管理ダッシュボード",
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "start": "wrangler dev",
+    "deploy": "wrangler deploy src/index.js --assets=./public"
+  },
+  "devDependencies": {
+    "wrangler": "^4.149.0"
+  }
+}

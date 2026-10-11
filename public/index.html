@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>YouTube ナレーター ＆ 漫画生成 管理ダッシュボード</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&display=swap" rel="stylesheet">
+</head>
+<body>
+  <div class="app-container">
+    <!-- ヘッダー -->
+    <header class="app-header">
+      <div class="header-left">
+        <div class="logo-icon">🎬</div>
+        <div>
+          <h1>yt-narrator 成果物 ＆ 進捗管理ダッシュボード</h1>
+          <p class="sub-title">YouTube自動要約・ナレーション・8コマ漫画生成パイプラインのリアルタイム可視化ツール</p>
+        </div>
+      </div>
+      <div class="header-right">
+        <button id="refresh-btn" class="btn btn-secondary">
+          <span class="refresh-icon">🔄</span> 最新状態に更新
+        </button>
+      </div>
+    </header>
+
+    <!-- 全体ステータス概要カード -->
+    <section class="overview-section">
+      <div class="stat-card">
+        <div class="stat-label">総プロジェクト数</div>
+        <div class="stat-value" id="stat-total-projects">-</div>
+        <div class="stat-desc">Google Drive /projects フォルダ内</div>
+      </div>
+      <div class="stat-card stat-success">
+        <div class="stat-label">8コマ漫画・原稿 完備</div>
+        <div class="stat-value" id="stat-completed-projects">-</div>
+        <div class="stat-desc">全8コマ ＋ ナレーション原稿 ＋ 完了JSON</div>
+      </div>
+      <div class="stat-card stat-warning">
+        <div class="stat-label">生成中 / 一部完了</div>
+        <div class="stat-value" id="stat-partial-projects">-</div>
+        <div class="stat-desc">画像生成中または未完の案件</div>
+      </div>
+      <div class="stat-card stat-info">
+        <div class="stat-label">処理キュー待機状況</div>
+        <div class="stat-value" id="stat-queue-status">-</div>
+        <div class="stat-desc" id="stat-queue-desc">yt-links 最新状態</div>
+      </div>
+    </section>
+
+    <!-- ナビゲーションタブ -->
+    <nav class="nav-tabs">
+      <button class="tab-btn active" data-tab="projects-view">
+        📚 案件・成果物ギャラリー (<span id="tab-project-count">0</span>)
+      </button>
+      <button class="tab-btn" data-tab="queues-view">
+        📋 URL処理キュー・履歴 (<span id="tab-queue-count">0</span>)
+      </button>
+    </nav>
+
+    <!-- 1. プロジェクト一覧ビュー -->
+    <main id="projects-view" class="tab-content active">
+      <!-- 検索・フィルターバー -->
+      <div class="filter-bar">
+        <div class="search-box">
+          <span class="search-icon">🔍</span>
+          <input type="text" id="search-input" placeholder="プロジェクト名、チャンネル名、キーワードで絞り込み...">
+          <button id="clear-search-btn" class="clear-btn hidden">&times;</button>
+        </div>
+        <div class="filter-controls">
+          <select id="status-filter">
+            <option value="all">すべてのステータス</option>
+            <option value="COMPLETED">✅ 完備（8コマ＋原稿）</option>
+            <option value="PARTIAL">⏳ 生成中 / 一部完了</option>
+          </select>
+          <select id="sort-select">
+            <option value="name-desc">日付・案件名 (新しい順)</option>
+            <option value="name-asc">日付・案件名 (古い順)</option>
+            <option value="manga-desc">漫画コマ数 (多い順)</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- プロジェクトグリッド -->
+      <div id="projects-grid" class="projects-grid">
+        <div class="loading-state">
+          <div class="spinner"></div>
+          <p>Google Drive から最新の成果物情報を取得しています...</p>
+        </div>
+      </div>
+    </main>
+
+    <!-- 2. キュー（yt-links）ビュー -->
+    <section id="queues-view" class="tab-content hidden">
+      <div class="queue-container">
+        <h2>📋 yt-links キューファイル一覧・処理履歴</h2>
+        <p class="tip-text">YouTube URLの投入キューファイルおよび、自動処理完了後のアーカイブ記録です。</p>
+        <div id="queue-list" class="queue-list">
+          <div class="loading-state">
+            <div class="spinner"></div>
+            <p>キュー情報を読み込み中...</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- プロジェクト詳細モーダル -->
+    <div id="project-modal" class="modal hidden">
+      <div class="modal-backdrop"></div>
+      <div class="modal-dialog">
+        <div class="modal-header">
+          <div>
+            <div class="modal-badge-row">
+              <span id="modal-status-badge" class="badge">ステータス</span>
+              <span id="modal-date-badge" class="badge-subtle">更新日</span>
+            </div>
+            <h2 id="modal-project-title" class="modal-title">プロジェクト詳細</h2>
+          </div>
+          <button id="close-modal-btn" class="modal-close">&times;</button>
+        </div>
+
+        <div class="modal-body">
+          <!-- モーダル内タブ -->
+          <div class="modal-tabs">
+            <button class="modal-tab-btn active" data-modaltab="manga-tab">🖼️ 8コマ漫画ビューア (<span id="modal-manga-count">0</span>)</button>
+            <button class="modal-tab-btn" data-modaltab="title-tab">🎨 表紙・タイトルカード (<span id="modal-title-count">0</span>)</button>
+            <button class="modal-tab-btn" data-modaltab="narration-tab">📝 ナレーション原稿</button>
+            <button class="modal-tab-btn" data-modaltab="meta-tab">ℹ️ メタデータ・構成情報</button>
+          </div>
+
+          <!-- 1. 漫画ビューアタブ -->
+          <div id="manga-tab" class="modal-tab-content active">
+            <div class="manga-viewer-container">
+              <div class="manga-main-display">
+                <div class="manga-slide-wrapper">
+                  <img id="manga-current-image" src="" alt="漫画コマ画像">
+                  <div class="manga-nav-overlay">
+                    <button id="manga-prev-btn" class="manga-nav-btn prev">&larr;</button>
+                    <button id="manga-next-btn" class="manga-nav-btn next">&rarr;</button>
+                  </div>
+                </div>
+                <div class="manga-caption">
+                  <span id="manga-page-indicator">1 / 8 コマ目</span>
+                  <span id="manga-file-name" class="manga-filename-text">-</span>
+                </div>
+              </div>
+
+              <!-- サムネイルストリップ -->
+              <div class="manga-strip-wrapper">
+                <div class="strip-label">コマ一覧 (クリックして移動):</div>
+                <div id="manga-thumbnails" class="manga-thumbnails"></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 2. タイトルカードタブ -->
+          <div id="title-tab" class="modal-tab-content hidden">
+            <div class="title-cards-container">
+              <p class="tip-text" style="margin-bottom:12px;">生成されたタイトルカード・表紙画像バリエーション一覧です（クリックで拡大）：</p>
+              <div id="title-cards-grid" class="title-cards-grid"></div>
+            </div>
+          </div>
+
+          <!-- 3. ナレーション原稿タブ -->
+          <div id="narration-tab" class="modal-tab-content hidden">
+            <div class="narration-container">
+              <div class="narration-actions">
+                <div class="narration-info">
+                  <span>文字数: <strong id="narration-char-count">0</strong> 文字</span>
+                  <span class="tts-estimate">（読み上げ推定時間: 約 <strong id="narration-duration-est">0分00秒</strong>）</span>
+                </div>
+                <button id="copy-narration-btn" class="btn btn-primary btn-sm">📋 原稿をコピー</button>
+              </div>
+              <textarea id="narration-text-area" readonly placeholder="ナレーション原稿がありません"></textarea>
+            </div>
+          </div>
+
+          <!-- 4. メタデータタブ -->
+          <div id="meta-tab" class="modal-tab-content hidden">
+            <div class="meta-container">
+              <div class="meta-section">
+                <h3>📖 あらすじ・シノプシス</h3>
+                <div id="meta-synopsis" class="meta-synopsis-box">-</div>
+              </div>
+              <div class="meta-section">
+                <h3>📁 生成ファイル一覧</h3>
+                <div id="meta-file-list" class="meta-file-list"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="modal-footer">
+          <a id="modal-drive-link" href="#" target="_blank" class="btn btn-secondary">
+            📂 Google Drive で直接開く
+          </a>
+          <button id="modal-close-bottom-btn" class="btn btn-secondary">閉じる</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
