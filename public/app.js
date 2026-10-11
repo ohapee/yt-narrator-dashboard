@@ -100,6 +100,24 @@ let currentTtsAudioBlob = null;
 const metaSynopsis = document.getElementById("meta-synopsis");
 const metaFileList = document.getElementById("meta-file-list");
 
+// YouTube元動画要素
+const modalYoutubeBadge = document.getElementById("modal-youtube-badge");
+const modalYoutubeLink = document.getElementById("modal-youtube-link");
+const narrationYoutubeSource = document.getElementById("narration-youtube-source");
+const narrationYoutubeLink = document.getElementById("narration-youtube-link");
+const narrationYoutubeMeta = document.getElementById("narration-youtube-meta");
+const narrationYoutubeBtn = document.getElementById("narration-youtube-btn");
+
+const metaYoutubeSection = document.getElementById("meta-youtube-section");
+const ytCardThumb = document.getElementById("yt-card-thumb");
+const ytCardPlayOverlay = document.getElementById("yt-card-play-overlay");
+const ytCardTitle = document.getElementById("yt-card-title");
+const ytCardChannel = document.getElementById("yt-card-channel");
+const ytCardPublish = document.getElementById("yt-card-publish");
+const ytCardDuration = document.getElementById("yt-card-duration");
+const ytCardViews = document.getElementById("yt-card-views");
+const ytCardLinkBtn = document.getElementById("yt-card-link-btn");
+
 // ----------------------------------------------------
 // 初期化
 // ----------------------------------------------------
@@ -338,6 +356,7 @@ function renderProjects(projects) {
             ${statusBadge}
             ${narrationBadge}
             ${titleBadge}
+            ${p.hasYoutube ? `<span class="badge-yt" title="作成元YouTube動画情報（youtube.json）あり">📺 元動画</span>` : ''}
           </div>
           <h3 class="project-title" title="${escapeHtml(p.name)}">${displayTitle}</h3>
           <div class="project-meta-row">
@@ -454,6 +473,9 @@ function renderProjectDetail(data, projectName) {
       </div>
     `;
   }).join("");
+
+  // 5. YouTube 元動画情報（youtube.json）のセットアップ
+  setupYoutubeInfo(data.youtube);
 }
 
 function setupMangaViewer(images) {
@@ -526,8 +548,54 @@ window.selectMangaPage = function(index) {
 
 function closeModal() {
   resetTtsPlayer();
+  modalYoutubeBadge.classList.add("hidden");
+  modalYoutubeLink.classList.add("hidden");
+  narrationYoutubeSource.classList.add("hidden");
+  metaYoutubeSection.classList.add("hidden");
   projectModal.classList.add("hidden");
   currentProjectDetail = null;
+}
+
+// ----------------------------------------------------
+// YouTube 元動画情報（youtube.json）のセットアップ
+// ----------------------------------------------------
+function setupYoutubeInfo(yt) {
+  if (!yt || !yt.url) {
+    modalYoutubeBadge.classList.add("hidden");
+    modalYoutubeLink.classList.add("hidden");
+    narrationYoutubeSource.classList.add("hidden");
+    metaYoutubeSection.classList.add("hidden");
+    return;
+  }
+
+  // 1. モーダルヘッダーバッジ
+  modalYoutubeBadge.href = yt.url;
+  modalYoutubeBadge.textContent = `▶️ 元動画: ${yt.channel_name || "YouTube"}`;
+  modalYoutubeBadge.classList.remove("hidden");
+
+  // 2. モーダルフッターボタン
+  modalYoutubeLink.href = yt.url;
+  modalYoutubeLink.classList.remove("hidden");
+
+  // 3. ナレーション原稿タブのクイックバー
+  narrationYoutubeLink.href = yt.url;
+  narrationYoutubeLink.textContent = yt.title || "元動画を開く";
+  narrationYoutubeMeta.textContent = `チャンネル: ${yt.channel_name || "-"} | 動画尺: ${formatDuration(yt.video_length)} | 再生数: ${formatViews(yt.view_count)}`;
+  narrationYoutubeBtn.href = yt.url;
+  narrationYoutubeSource.classList.remove("hidden");
+
+  // 4. メタデータタブのYouTube詳細カード
+  const thumbUrl = yt.video_id ? `https://img.youtube.com/vi/${yt.video_id}/mqdefault.jpg` : "";
+  ytCardThumb.src = thumbUrl;
+  ytCardPlayOverlay.href = yt.url;
+  ytCardTitle.href = yt.url;
+  ytCardTitle.textContent = yt.title || "元動画タイトルなし";
+  ytCardChannel.textContent = yt.channel_name || "-";
+  ytCardPublish.textContent = yt.publish_date || "-";
+  ytCardDuration.textContent = formatDuration(yt.video_length);
+  ytCardViews.textContent = formatViews(yt.view_count);
+  ytCardLinkBtn.href = yt.url;
+  metaYoutubeSection.classList.remove("hidden");
 }
 
 // ----------------------------------------------------
@@ -760,4 +828,21 @@ function escapeHtml(str) {
     '"': "&quot;",
     "'": "&#39;"
   })[m]);
+}
+
+function formatDuration(iso) {
+  if (!iso) return "-";
+  const m = iso.match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/);
+  if (!m) return iso;
+  const hours = m[1] ? `${parseInt(m[1])}時間` : "";
+  const mins = m[2] ? `${parseInt(m[2])}分` : (hours ? "00分" : "0分");
+  const secs = m[3] ? `${m[3].padStart(2, "0")}秒` : "00秒";
+  return `${hours}${mins}${secs}`;
+}
+
+function formatViews(count) {
+  if (count === undefined || count === null) return "-";
+  const n = Number(count);
+  if (isNaN(n)) return String(count);
+  return `${n.toLocaleString("ja-JP")} 回`;
 }

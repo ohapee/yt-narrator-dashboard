@@ -116,6 +116,9 @@
             <div class="modal-badge-row">
               <span id="modal-status-badge" class="badge">ステータス</span>
               <span id="modal-date-badge" class="badge-subtle">更新日</span>
+              <a id="modal-youtube-badge" href="#" target="_blank" class="badge-youtube hidden" title="元動画をYouTubeで開く">
+                ▶️ YouTube元動画
+              </a>
             </div>
             <h2 id="modal-project-title" class="modal-title">プロジェクト詳細</h2>
           </div>
@@ -127,8 +130,8 @@
           <div class="modal-tabs">
             <button class="modal-tab-btn active" data-modaltab="manga-tab">🖼️ 8コマ漫画ビューア (<span id="modal-manga-count">0</span>)</button>
             <button class="modal-tab-btn" data-modaltab="title-tab">🎨 表紙・タイトルカード (<span id="modal-title-count">0</span>)</button>
-            <button class="modal-tab-btn" data-modaltab="narration-tab">📝 ナレーション原稿</button>
-            <button class="modal-tab-btn" data-modaltab="meta-tab">ℹ️ メタデータ・構成情報</button>
+            <button class="modal-tab-btn" data-modaltab="narration-tab">🎙️ ナレーション原稿</button>
+            <button class="modal-tab-btn" data-modaltab="meta-tab">ℹ️ メタデータ・元動画情報</button>
           </div>
 
           <!-- 1. 漫画ビューアタブ -->
@@ -233,6 +236,17 @@
                 <button id="copy-narration-btn" class="btn btn-secondary btn-sm">📋 原稿をコピー</button>
               </div>
 
+              <!-- 元動画クイック情報バー -->
+              <div id="narration-youtube-source" class="narration-source-box hidden">
+                <div class="source-icon">📺</div>
+                <div class="source-text">
+                  <span class="source-label">ナレーション作成元 YouTube動画:</span>
+                  <a id="narration-youtube-link" href="#" target="_blank" class="source-title" title="YouTubeで動画を開く">-</a>
+                  <span id="narration-youtube-meta" class="source-meta">-</span>
+                </div>
+                <a id="narration-youtube-btn" href="#" target="_blank" class="btn btn-sm btn-youtube">YouTubeで開く ↗</a>
+              </div>
+
               <textarea id="narration-text-area" readonly placeholder="ナレーション原稿がありません"></textarea>
             </div>
           </div>
@@ -240,6 +254,45 @@
           <!-- 4. メタデータタブ -->
           <div id="meta-tab" class="modal-tab-content hidden">
             <div class="meta-container">
+              <!-- YouTube元動画詳細セクション -->
+              <div id="meta-youtube-section" class="meta-section hidden">
+                <h3>📺 ナレーション作成元 YouTube動画情報 (youtube.json)</h3>
+                <div id="youtube-detail-card" class="youtube-detail-card">
+                  <div class="youtube-thumb-box">
+                    <img id="yt-card-thumb" src="" alt="元動画サムネイル">
+                    <a id="yt-card-play-overlay" href="#" target="_blank" class="yt-play-overlay" title="YouTubeで再生">▶</a>
+                  </div>
+                  <div class="youtube-info-content">
+                    <div class="yt-title-row">
+                      <a id="yt-card-title" href="#" target="_blank" class="yt-video-title">-</a>
+                    </div>
+                    <div class="yt-meta-grid">
+                      <div class="yt-meta-item">
+                        <span class="yt-meta-label">チャンネル名</span>
+                        <strong id="yt-card-channel" class="yt-meta-val">-</strong>
+                      </div>
+                      <div class="yt-meta-item">
+                        <span class="yt-meta-label">公開日</span>
+                        <span id="yt-card-publish" class="yt-meta-val">-</span>
+                      </div>
+                      <div class="yt-meta-item">
+                        <span class="yt-meta-label">動画の長さ</span>
+                        <span id="yt-card-duration" class="yt-meta-val">-</span>
+                      </div>
+                      <div class="yt-meta-item">
+                        <span class="yt-meta-label">再生回数</span>
+                        <span id="yt-card-views" class="yt-meta-val">-</span>
+                      </div>
+                    </div>
+                    <div class="yt-action-row">
+                      <a id="yt-card-link-btn" href="#" target="_blank" class="btn btn-sm btn-youtube">
+                        ▶️ YouTubeでこの動画を開く
+                      </a>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
               <div class="meta-section">
                 <h3>📖 あらすじ・シノプシス</h3>
                 <div id="meta-synopsis" class="meta-synopsis-box">-</div>
@@ -253,6 +306,9 @@
         </div>
 
         <div class="modal-footer">
+          <a id="modal-youtube-link" href="#" target="_blank" class="btn btn-youtube hidden">
+            ▶️ YouTube元動画
+          </a>
           <a id="modal-drive-link" href="#" target="_blank" class="btn btn-secondary">
             📂 Google Drive で直接開く
           </a>

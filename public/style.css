@@ -874,6 +874,208 @@ body {
   font-size: 13px;
 }
 
+/* YouTube元動画情報スタイル */
+.badge-youtube {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  border-radius: 20px;
+  font-size: 11px;
+  font-weight: 700;
+  background: #fee2e2;
+  color: #dc2626;
+  text-decoration: none;
+  transition: all 0.2s ease;
+  border: 1px solid #fca5a5;
+}
+
+.badge-youtube:hover {
+  background: #dc2626;
+  color: #ffffff;
+}
+
+.btn-youtube {
+  background: #dc2626 !important;
+  color: #ffffff !important;
+  border: none !important;
+  font-weight: 600 !important;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: background 0.2s;
+}
+
+.btn-youtube:hover {
+  background: #b91c1c !important;
+  color: #ffffff !important;
+}
+
+/* 原稿タブ内の元動画情報バー */
+.narration-source-box {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  border-radius: 8px;
+  font-size: 13px;
+}
+
+.narration-source-box .source-icon {
+  font-size: 20px;
+  flex-shrink: 0;
+}
+
+.narration-source-box .source-text {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.narration-source-box .source-label {
+  font-size: 11px;
+  font-weight: 700;
+  color: #dc2626;
+  text-transform: uppercase;
+}
+
+.narration-source-box .source-title {
+  font-weight: 600;
+  color: var(--text-main);
+  text-decoration: none;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.narration-source-box .source-title:hover {
+  color: #dc2626;
+  text-decoration: underline;
+}
+
+.narration-source-box .source-meta {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+/* メタデータタブのYouTube詳細カード */
+.youtube-detail-card {
+  display: flex;
+  gap: 18px;
+  padding: 16px;
+  background: #ffffff;
+  border: 1px solid #fecaca;
+  border-radius: 10px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+}
+
+.youtube-thumb-box {
+  position: relative;
+  width: 200px;
+  height: 112px; /* 16:9比率 */
+  border-radius: 8px;
+  overflow: hidden;
+  background: #0f172a;
+  flex-shrink: 0;
+}
+
+.youtube-thumb-box img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: transform 0.2s;
+}
+
+.youtube-thumb-box:hover img {
+  transform: scale(1.05);
+}
+
+.yt-play-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #ffffff;
+  font-size: 28px;
+  text-decoration: none;
+  opacity: 0.85;
+  transition: all 0.2s;
+}
+
+.yt-play-overlay:hover {
+  background: rgba(220, 38, 38, 0.7);
+  opacity: 1;
+}
+
+.youtube-info-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  min-width: 0;
+}
+
+.yt-title-row {
+  margin-bottom: 8px;
+}
+
+.yt-video-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-main);
+  text-decoration: none;
+  line-height: 1.4;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.yt-video-title:hover {
+  color: #dc2626;
+  text-decoration: underline;
+}
+
+.yt-meta-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 8px 14px;
+  background: #f8fafc;
+  padding: 8px 12px;
+  border-radius: 6px;
+  margin-bottom: 10px;
+}
+
+.yt-meta-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 12px;
+}
+
+.yt-meta-label {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.yt-meta-val {
+  color: var(--text-main);
+  font-size: 12px;
+}
+
+.yt-action-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
 .modal-footer {
   display: flex;
   justify-content: space-between;
@@ -883,6 +1085,19 @@ body {
   background: #f8fafc;
 }
 
+.badge-yt {
+  background: #fee2e2;
+  color: #dc2626;
+  border: 1px solid #fca5a5;
+  font-size: 11px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
 /* レスポンシブ */
 @media (max-width: 768px) {
   body { padding: 12px; }
@@ -890,6 +1105,8 @@ body {
   .filter-bar { flex-direction: column; align-items: stretch; }
   .filter-controls { flex-direction: column; }
   .manga-slide-wrapper { width: 240px; height: 426px; }
+  .youtube-detail-card { flex-direction: column; }
+  .youtube-thumb-box { width: 100%; height: 190px; }
 }
 
 .hidden { display: none !important; }

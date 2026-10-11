@@ -182,6 +182,7 @@ export default {
                 .sort((a, b) => a.name.localeCompare(b.name));
 
               const hasNarration = files.some(f => f.name === "narration_tts.txt");
+              const hasYoutube = files.some(f => f.name === "youtube.json");
               const mangaDoneFile = files.find(f => f.name === "manga_done.json");
               const titleDoneFile = files.find(f => f.name === "title_done.json");
 
@@ -213,6 +214,7 @@ export default {
                 mangaCount: mangaImages.length,
                 titleCount: titleImages.length,
                 hasNarration,
+                hasYoutube,
                 hasMetadata: !!mangaDoneFile,
                 hasTitle: titleImages.length > 0,
                 mangaDoneId: mangaDoneFile?.id || "",
@@ -229,6 +231,7 @@ export default {
                 mangaCount: 0,
                 titleCount: 0,
                 hasNarration: false,
+                hasYoutube: false,
                 hasMetadata: false,
                 hasTitle: false,
                 thumbnailId: "",
@@ -273,6 +276,7 @@ export default {
         const narrationFile = files.find(f => f.name === "narration_tts.txt");
         const metadataFile = files.find(f => f.name === "manga_done.json");
         const titleDoneFile = files.find(f => f.name === "title_done.json");
+        const youtubeFile = files.find(f => f.name === "youtube.json");
 
         let narrationText = "";
         if (narrationFile) {
@@ -302,6 +306,16 @@ export default {
           }
         }
 
+        let youtubeJson = null;
+        if (youtubeFile) {
+          const yRes = await driveFetch(`files/${youtubeFile.id}?alt=media`, env);
+          if (yRes.ok) {
+            try {
+              youtubeJson = await yRes.json();
+            } catch (e) {}
+          }
+        }
+
         return new Response(JSON.stringify({
           success: true,
           projectId,
@@ -320,7 +334,8 @@ export default {
           })),
           narrationText,
           metadata: metadataJson,
-          titleMetadata: titleJson
+          titleMetadata: titleJson,
+          youtube: youtubeJson
         }), {
           headers: { ...corsHeaders, "Content-Type": "application/json; charset=utf-8" }
         });
