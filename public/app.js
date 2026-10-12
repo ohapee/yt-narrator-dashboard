@@ -265,6 +265,9 @@ function initEvents() {
         triggerCronIcon.textContent = "⚡";
         triggerCronText.textContent = "今すぐ4件を手動実行";
       }
+    });
+  }
+
   // カタログ即時差分同期ボタン
   const syncCatalogBtn = document.getElementById("sync-catalog-btn");
   const syncCatalogIcon = document.getElementById("sync-catalog-icon");
