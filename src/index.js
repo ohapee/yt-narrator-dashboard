@@ -359,6 +359,107 @@ async function syncCatalog(env) {
   };
 }
 
+/**
+ * パイプライン3大工程（漫画・タイトル・音声）の最終実行時間および停滞・エラー検知
+ */
+async function getPipelineStatus(env, catalog) {
+  const pMap = new Map((catalog?.projects || []).map(p => [p.id, p]));
+
+  let latestMangaFile = null;
+  let latestTitleFile = null;
+  let latestAudioFile = null;
+
+  try {
+    const [mRes, tRes, aRes] = await Promise.all([
+      driveFetch("files?q=name='manga_done.json'+and+trashed=false&orderBy=modifiedTime+desc&pageSize=3&fields=files(id,name,modifiedTime,parents)", env),
+      driveFetch("files?q=name='title_done.json'+and+trashed=false&orderBy=modifiedTime+desc&pageSize=3&fields=files(id,name,modifiedTime,parents)", env),
+      driveFetch("files?q=name='narration_tts.mp3'+and+trashed=false&orderBy=modifiedTime+desc&pageSize=3&fields=files(id,name,modifiedTime,parents)", env),
+    ]);
+
+    const [mData, tData, aData] = await Promise.all([mRes.json(), tRes.json(), aRes.json()]);
+
+    latestMangaFile = (mData.files || []).find(f => f.parents?.[0] && pMap.has(f.parents[0])) || mData.files?.[0];
+    latestTitleFile = (tData.files || []).find(f => f.parents?.[0] && pMap.has(f.parents[0])) || tData.files?.[0];
+    latestAudioFile = (aData.files || []).find(f => f.parents?.[0] && pMap.has(f.parents[0])) || aData.files?.[0];
+  } catch (e) {
+    console.error("[Pipeline Status] Drive API 検索エラー:", e);
+  }
+
+  const now = Date.now();
+
+  function evaluateHealth(modifiedTime, warnHours = 3, stopHours = 6) {
+    if (!modifiedTime) {
+      return { status: "UNKNOWN", label: "データ取得中", timeAgo: "-", isStopped: false };
+    }
+    const diffMs = now - new Date(modifiedTime).getTime();
+    const diffMins = Math.floor(diffMs / 60000);
+    const diffHours = (diffMs / 3600000).toFixed(1);
+
+    let timeAgo = "";
+    if (diffMins < 60) timeAgo = `${diffMins}分前`;
+    else if (diffHours < 24) timeAgo = `${diffHours}時間前`;
+    else timeAgo = `${(diffHours / 24).toFixed(1)}日前`;
+
+    if (diffMs < warnHours * 3600000) {
+      return { status: "ACTIVE", label: "🟢 正常稼働中", timeAgo, isStopped: false };
+    } else if (diffMs < stopHours * 3600000) {
+      return { status: "WARN", label: "🟡 やや間隔あり", timeAgo, isStopped: false };
+    } else {
+      return { status: "STOPPED", label: "🔴 停止中（要確認）", timeAgo, isStopped: true };
+    }
+  }
+
+  const mangaParent = latestMangaFile?.parents?.[0] ? pMap.get(latestMangaFile.parents[0]) : null;
+  const titleParent = latestTitleFile?.parents?.[0] ? pMap.get(latestTitleFile.parents[0]) : null;
+  const audioParent = latestAudioFile?.parents?.[0] ? pMap.get(latestAudioFile.parents[0]) : null;
+
+  const allProjects = catalog?.projects || [];
+  const stalledProjects = allProjects.filter(p => {
+    if (p.status === "COMPLETED") return false;
+    const ageMs = now - new Date(p.createdTime || p.modifiedTime).getTime();
+    return ageMs > 2 * 3600000;
+  });
+
+  const unvoicedProjects = allProjects.filter(p => p.status === "COMPLETED" && !p.hasAudio);
+  const untitledProjects = allProjects.filter(p => p.mangaCount >= 8 && !p.hasTitle);
+
+  return {
+    manga: {
+      lastExecutedAt: latestMangaFile?.modifiedTime || null,
+      projectName: mangaParent?.name || "最新案件",
+      projectId: mangaParent?.id || "",
+      ...evaluateHealth(latestMangaFile?.modifiedTime, 3, 6),
+      completedCount: allProjects.filter(p => p.status === "COMPLETED").length,
+      pendingCount: allProjects.filter(p => p.status !== "COMPLETED").length
+    },
+    title: {
+      lastExecutedAt: latestTitleFile?.modifiedTime || null,
+      projectName: titleParent?.name || "最新タイトル生成案件",
+      projectId: titleParent?.id || "",
+      ...evaluateHealth(latestTitleFile?.modifiedTime, 3, 6),
+      completedCount: allProjects.filter(p => p.hasTitle).length,
+      pendingCount: untitledProjects.length
+    },
+    audio: {
+      lastExecutedAt: latestAudioFile?.modifiedTime || null,
+      projectName: audioParent?.name || "最新音声生成案件",
+      projectId: audioParent?.id || "",
+      ...evaluateHealth(latestAudioFile?.modifiedTime, 2, 4),
+      completedCount: allProjects.filter(p => p.hasAudio).length,
+      pendingCount: unvoicedProjects.length
+    },
+    stalledProjects: stalledProjects.map(p => ({
+      id: p.id,
+      name: p.name,
+      mangaCount: p.mangaCount,
+      hasTitle: p.hasTitle,
+      createdTime: p.createdTime,
+      totalFiles: p.totalFiles
+    })),
+    cronStatus: lastCronResult
+  };
+}
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
@@ -386,10 +487,12 @@ export default {
         // カタログからサマリーを即座に取得
         let catalog = await getCatalog(env);
         if (!catalog) {
-          // 未作成の場合は同期実行
           const syncRes = await syncCatalog(env);
           catalog = syncRes.catalog;
         }
+
+        // パイプライン3大工程の稼働ヘルスチェック
+        const pipelineStatus = await getPipelineStatus(env, catalog);
 
         // yt-links フォルダ（キューファイル）の取得
         const subRes = await driveFetch(
@@ -418,8 +521,27 @@ export default {
           partialProjects: catalog.partialProjects,
           recentProjects: (catalog.projects || []).slice(0, 5),
           queueFiles,
+          pipelineStatus,
           catalogGeneratedAt: catalog.generatedAt,
           updatedAt: new Date().toISOString()
+        }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json; charset=utf-8" }
+        });
+      }
+
+      // ----------------------------------------------------
+      // 1-2. API: パイプライン稼働ステータス (/api/pipeline-status)
+      // ----------------------------------------------------
+      if (pathname === "/api/pipeline-status") {
+        let catalog = await getCatalog(env);
+        if (!catalog) {
+          const syncRes = await syncCatalog(env);
+          catalog = syncRes.catalog;
+        }
+        const pipelineStatus = await getPipelineStatus(env, catalog);
+        return new Response(JSON.stringify({
+          success: true,
+          pipelineStatus
         }), {
           headers: { ...corsHeaders, "Content-Type": "application/json; charset=utf-8" }
         });

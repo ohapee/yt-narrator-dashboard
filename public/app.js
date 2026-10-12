@@ -297,6 +297,17 @@ function initEvents() {
       }
     });
   }
+
+  // 停滞案件リストの表示・非表示トグル
+  const showStalledBtn = document.getElementById("show-stalled-btn");
+  const stalledListContainer = document.getElementById("stalled-list-container");
+  if (showStalledBtn && stalledListContainer) {
+    showStalledBtn.addEventListener("click", () => {
+      const isHidden = stalledListContainer.classList.contains("hidden");
+      stalledListContainer.classList.toggle("hidden", !isHidden);
+      showStalledBtn.textContent = isHidden ? "停滞案件の内訳を閉じる ▴" : "停滞案件の内訳を表示 ▾";
+    });
+  }
 }
 
 // ----------------------------------------------------
@@ -350,6 +361,139 @@ function updateOverview(data) {
     statQueueStatus.textContent = "0 件";
     statQueueDesc.textContent = "待機中キューなし";
   }
+
+  // パイプライン稼働状況モニターの描画
+  if (data.pipelineStatus) {
+    updatePipelineMonitor(data.pipelineStatus);
+  }
+}
+
+function updatePipelineMonitor(status) {
+  // 1. 8コマ漫画生成
+  const m = status.manga;
+  if (m) {
+    const timeEl = document.getElementById("time-monitor-manga");
+    const diffEl = document.getElementById("diff-monitor-manga");
+    const badgeEl = document.getElementById("badge-monitor-manga");
+    const projEl = document.getElementById("project-monitor-manga");
+    const pendEl = document.getElementById("pending-monitor-manga");
+
+    if (timeEl) timeEl.textContent = formatDateTime(m.lastExecutedAt);
+    if (diffEl) diffEl.textContent = m.timeAgo ? `(${m.timeAgo})` : "";
+    if (badgeEl) {
+      badgeEl.textContent = m.label;
+      badgeEl.className = `badge ${m.status === "ACTIVE" ? "badge-success" : m.status === "WARN" ? "badge-warning" : "badge-danger"}`;
+    }
+    if (projEl) projEl.textContent = formatProjectTitle(m.projectName);
+    if (pendEl) pendEl.textContent = `${m.pendingCount} 件`;
+  }
+
+  // 2. タイトル画像作成
+  const t = status.title;
+  if (t) {
+    const timeEl = document.getElementById("time-monitor-title");
+    const diffEl = document.getElementById("diff-monitor-title");
+    const badgeEl = document.getElementById("badge-monitor-title");
+    const projEl = document.getElementById("project-monitor-title");
+    const pendEl = document.getElementById("pending-monitor-title");
+
+    if (timeEl) timeEl.textContent = formatDateTime(t.lastExecutedAt);
+    if (diffEl) diffEl.textContent = t.timeAgo ? `(${t.timeAgo})` : "";
+    if (badgeEl) {
+      badgeEl.textContent = t.label;
+      badgeEl.className = `badge ${t.status === "ACTIVE" ? "badge-success" : t.status === "WARN" ? "badge-warning" : "badge-danger"}`;
+    }
+    if (projEl) projEl.textContent = formatProjectTitle(t.projectName);
+    if (pendEl) pendEl.textContent = `${t.pendingCount} 件`;
+  }
+
+  // 3. ナレーション音声生成
+  const a = status.audio;
+  if (a) {
+    const timeEl = document.getElementById("time-monitor-audio");
+    const diffEl = document.getElementById("diff-monitor-audio");
+    const badgeEl = document.getElementById("badge-monitor-audio");
+    const projEl = document.getElementById("project-monitor-audio");
+    const pendEl = document.getElementById("pending-monitor-audio");
+
+    if (timeEl) timeEl.textContent = formatDateTime(a.lastExecutedAt);
+    if (diffEl) diffEl.textContent = a.timeAgo ? `(${a.timeAgo})` : "";
+    if (badgeEl) {
+      badgeEl.textContent = a.label;
+      badgeEl.className = `badge ${a.status === "ACTIVE" ? "badge-success" : a.status === "WARN" ? "badge-warning" : "badge-danger"}`;
+    }
+    if (projEl) projEl.textContent = formatProjectTitle(a.projectName);
+    if (pendEl) pendEl.textContent = `${a.pendingCount} 件`;
+  }
+
+  // 4. 停滞・エラー警告バナーの制御
+  const stalledBox = document.getElementById("stalled-alert-box");
+  const stalledUl = document.getElementById("stalled-list-ul");
+  const stalledTitle = document.getElementById("stalled-alert-title");
+  const stalledDesc = document.getElementById("stalled-alert-desc");
+
+  const stalledList = status.stalledProjects || [];
+  const titleStopped = status.title && status.title.status === "STOPPED";
+
+  if (stalledList.length > 0 || titleStopped) {
+    if (stalledBox) stalledBox.classList.remove("hidden");
+
+    let warnings = [];
+    if (titleStopped) {
+      warnings.push(`タイトル画像生成が【${status.title.timeAgo}】から停止しています（現在 ${status.title.pendingCount} 件がタイトル未生成）`);
+    }
+    if (stalledList.length > 0) {
+      warnings.push(`漫画画像が未生成のまま長時間経過している案件が ${stalledList.length} 件あります`);
+    }
+
+    if (stalledTitle) {
+      stalledTitle.textContent = titleStopped ? "🚨 タイトル画像生成停止 ＆ 漫画未完の警告" : "⚠️ 漫画生成待ち・停滞案件の警告";
+    }
+    if (stalledDesc) {
+      stalledDesc.textContent = warnings.join(" / ");
+    }
+
+    if (stalledUl) {
+      stalledUl.innerHTML = stalledList.map(item => {
+        const ageHours = ((Date.now() - new Date(item.createdTime).getTime()) / 3600000).toFixed(1);
+        return `
+          <li style="display:flex; justify-content:space-between; align-items:center; background:rgba(0,0,0,0.2); padding:6px 10px; border-radius:6px;">
+            <div style="display:flex; align-items:center; gap:8px;">
+              <span style="color:#f87171;">⏳</span>
+              <span style="font-weight:600; color:#f1f5f9;">${escapeHtml(formatProjectTitle(item.name))}</span>
+              <span style="color:#94a3b8; font-size:11px;">(${ageHours}時間前に投入)</span>
+            </div>
+            <div style="display:flex; align-items:center; gap:8px;">
+              <span class="badge badge-warning" style="font-size:11px;">漫画: ${item.mangaCount}/8コマ</span>
+              <span class="badge ${item.hasTitle ? 'badge-success' : 'badge-subtle'}" style="font-size:11px;">${item.hasTitle ? '表紙あり' : '表紙なし'}</span>
+              <button class="btn btn-secondary btn-sm" onclick="filterByProjectName('${escapeHtml(item.name)}')" style="font-size:11px; padding:2px 8px;">確認</button>
+            </div>
+          </li>
+        `;
+      }).join("");
+    }
+  } else {
+    if (stalledBox) stalledBox.classList.add("hidden");
+  }
+}
+
+function filterByProjectName(name) {
+  searchInput.value = name;
+  clearSearchBtn.classList.remove("hidden");
+  applyFilters();
+  window.scrollTo({ top: document.getElementById("projects-view").offsetTop - 80, behavior: "smooth" });
+}
+
+function formatDateTime(iso) {
+  if (!iso) return "記録なし";
+  const d = new Date(iso);
+  const pad = n => String(n).padStart(2, "0");
+  const year = d.getFullYear();
+  const month = pad(d.getMonth() + 1);
+  const day = pad(d.getDate());
+  const hours = pad(d.getHours());
+  const mins = pad(d.getMinutes());
+  return `${year}/${month}/${day} ${hours}:${mins}`;
 }
 
 function updateStats() {
