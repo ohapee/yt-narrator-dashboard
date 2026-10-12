@@ -20,7 +20,10 @@
           <p class="sub-title">YouTube自動要約・ナレーション・8コマ漫画生成パイプラインのリアルタイム可視化ツール</p>
         </div>
       </div>
-      <div class="header-right">
+      <div class="header-right" style="display: flex; gap: 8px;">
+        <button id="sync-catalog-btn" class="btn btn-secondary" title="Google Driveの新規案件フォルダをスキャンしてカタログを最新化します">
+          <span id="sync-catalog-icon">⚡</span> <span id="sync-catalog-text">カタログ同期</span>
+        </button>
         <button id="refresh-btn" class="btn btn-secondary">
           <span class="refresh-icon">🔄</span> 最新状態に更新
         </button>

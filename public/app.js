@@ -265,6 +265,33 @@ function initEvents() {
         triggerCronIcon.textContent = "⚡";
         triggerCronText.textContent = "今すぐ4件を手動実行";
       }
+  // カタログ即時差分同期ボタン
+  const syncCatalogBtn = document.getElementById("sync-catalog-btn");
+  const syncCatalogIcon = document.getElementById("sync-catalog-icon");
+  const syncCatalogText = document.getElementById("sync-catalog-text");
+
+  if (syncCatalogBtn) {
+    syncCatalogBtn.addEventListener("click", async () => {
+      syncCatalogBtn.disabled = true;
+      syncCatalogIcon.textContent = "⏳";
+      syncCatalogText.textContent = "差分同期中...";
+
+      try {
+        const res = await fetch("/api/sync-catalog", { method: "POST" });
+        const data = await res.json();
+        if (data.success) {
+          alert(`⚡ カタログ同期が完了しました！\n\n・総フォルダ数: ${data.totalProjects} 件\n・更新フォルダ数: ${data.updatedFolders} 件\n・所要時間: ${data.elapsedSec} 秒`);
+          loadData();
+        } else {
+          alert(`同期エラー: ${data.error || "カタログ同期に失敗しました"}`);
+        }
+      } catch (err) {
+        alert(`通信エラー: ${err.message}`);
+      } finally {
+        syncCatalogBtn.disabled = false;
+        syncCatalogIcon.textContent = "⚡";
+        syncCatalogText.textContent = "カタログ同期";
+      }
     });
   }
 }
@@ -281,8 +308,8 @@ async function loadData() {
       updateOverview(overviewData);
     }
 
-    // プロジェクト一覧の取得
-    const projRes = await fetch("/api/projects?limit=60");
+    // プロジェクト一覧の取得（_catalog.jsonから全件瞬時取得）
+    const projRes = await fetch("/api/projects");
     const projData = await projRes.json();
     if (projData.success) {
       allProjects = projData.projects || [];
