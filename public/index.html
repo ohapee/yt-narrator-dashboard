@@ -62,79 +62,79 @@
     <!-- パイプライン3大工程稼働状況モニター＆停止検知 -->
     <section class="pipeline-monitor-section" style="margin-bottom: 24px;">
       <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
-        <h2 style="font-size:16px; font-weight:700; color:#f8fafc; display:flex; align-items:center; gap:8px;">
+        <h2 style="font-size:16px; font-weight:700; color:var(--text-main); display:flex; align-items:center; gap:8px;">
           <span>🚦 パイプライン工程別 稼働状況モニター（停止・停滞検知）</span>
-          <span style="font-size:12px; font-weight:normal; color:#94a3b8;">最終実行時間とステータス</span>
+          <span style="font-size:12px; font-weight:normal; color:var(--text-muted);">最終実行時間とステータス</span>
         </h2>
       </div>
 
       <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap:16px;">
         <!-- 1. 8コマ漫画生成モニター -->
-        <div class="stat-card" id="card-monitor-manga" style="border-top: 4px solid #3b82f6;">
+        <div class="stat-card" id="card-monitor-manga" style="border-top: 4px solid #2563eb;">
           <div style="display:flex; justify-content:space-between; align-items:flex-start;">
-            <div style="font-weight:700; font-size:15px; color:#f8fafc;">🖼️ 8コマ漫画生成</div>
+            <div style="font-weight:700; font-size:15px; color:var(--text-main);">🖼️ 8コマ漫画生成</div>
             <span id="badge-monitor-manga" class="badge" style="font-size:12px;">判定中...</span>
           </div>
           <div style="margin-top:10px;">
-            <div style="font-size:12px; color:#94a3b8;">最終実行日時:</div>
-            <div id="time-monitor-manga" style="font-size:18px; font-weight:700; color:#f8fafc; margin-top:2px;">-</div>
-            <div id="diff-monitor-manga" style="font-size:12px; color:#60a5fa; font-weight:600;">-</div>
+            <div style="font-size:12px; color:var(--text-muted); font-weight:500;">最終実行日時:</div>
+            <div id="time-monitor-manga" style="font-size:20px; font-weight:700; color:var(--text-main); margin-top:2px;">-</div>
+            <div id="diff-monitor-manga" style="font-size:13px; color:#1d4ed8; font-weight:700; margin-top:2px;">-</div>
           </div>
-          <div style="margin-top:10px; font-size:12px; color:#94a3b8; border-top:1px solid #334155; padding-top:8px;">
-            <div>最新案件: <span id="project-monitor-manga" style="color:#e2e8f0; font-weight:500;">-</span></div>
-            <div style="margin-top:2px;">未完了案件: <span id="pending-monitor-manga" style="color:#f59e0b; font-weight:600;">-</span></div>
+          <div style="margin-top:12px; font-size:12px; color:var(--text-muted); border-top:1px solid var(--border-color); padding-top:10px;">
+            <div>最新案件: <span id="project-monitor-manga" style="color:var(--text-main); font-weight:600;">-</span></div>
+            <div style="margin-top:4px;">未完了案件: <span id="pending-monitor-manga" style="color:#d97706; font-weight:700;">-</span></div>
           </div>
         </div>
 
         <!-- 2. タイトル画像生成モニター -->
-        <div class="stat-card" id="card-monitor-title" style="border-top: 4px solid #8b5cf6;">
+        <div class="stat-card" id="card-monitor-title" style="border-top: 4px solid #7c3aed;">
           <div style="display:flex; justify-content:space-between; align-items:flex-start;">
-            <div style="font-weight:700; font-size:15px; color:#f8fafc;">🎨 タイトル画像作成</div>
+            <div style="font-weight:700; font-size:15px; color:var(--text-main);">🎨 タイトル画像作成</div>
             <span id="badge-monitor-title" class="badge" style="font-size:12px;">判定中...</span>
           </div>
           <div style="margin-top:10px;">
-            <div style="font-size:12px; color:#94a3b8;">最終実行日時:</div>
-            <div id="time-monitor-title" style="font-size:18px; font-weight:700; color:#f8fafc; margin-top:2px;">-</div>
-            <div id="diff-monitor-title" style="font-size:12px; color:#c084fc; font-weight:600;">-</div>
+            <div style="font-size:12px; color:var(--text-muted); font-weight:500;">最終実行日時:</div>
+            <div id="time-monitor-title" style="font-size:20px; font-weight:700; color:var(--text-main); margin-top:2px;">-</div>
+            <div id="diff-monitor-title" style="font-size:13px; color:#7c3aed; font-weight:700; margin-top:2px;">-</div>
           </div>
-          <div style="margin-top:10px; font-size:12px; color:#94a3b8; border-top:1px solid #334155; padding-top:8px;">
-            <div>最新案件: <span id="project-monitor-title" style="color:#e2e8f0; font-weight:500;">-</span></div>
-            <div style="margin-top:2px;">タイトル未作成: <span id="pending-monitor-title" style="color:#f59e0b; font-weight:600;">-</span></div>
+          <div style="margin-top:12px; font-size:12px; color:var(--text-muted); border-top:1px solid var(--border-color); padding-top:10px;">
+            <div>最新案件: <span id="project-monitor-title" style="color:var(--text-main); font-weight:600;">-</span></div>
+            <div style="margin-top:4px;">タイトル未作成: <span id="pending-monitor-title" style="color:#d97706; font-weight:700;">-</span></div>
           </div>
         </div>
 
         <!-- 3. ナレーション音声生成モニター -->
-        <div class="stat-card" id="card-monitor-audio" style="border-top: 4px solid #10b981;">
+        <div class="stat-card" id="card-monitor-audio" style="border-top: 4px solid #059669;">
           <div style="display:flex; justify-content:space-between; align-items:flex-start;">
-            <div style="font-weight:700; font-size:15px; color:#f8fafc;">🎙️ 音声生成 (Cron)</div>
+            <div style="font-weight:700; font-size:15px; color:var(--text-main);">🎙️ 音声生成 (Cron)</div>
             <span id="badge-monitor-audio" class="badge" style="font-size:12px;">判定中...</span>
           </div>
           <div style="margin-top:10px;">
-            <div style="font-size:12px; color:#94a3b8;">最終実行日時:</div>
-            <div id="time-monitor-audio" style="font-size:18px; font-weight:700; color:#f8fafc; margin-top:2px;">-</div>
-            <div id="diff-monitor-audio" style="font-size:12px; color:#34d399; font-weight:600;">-</div>
+            <div style="font-size:12px; color:var(--text-muted); font-weight:500;">最終実行日時:</div>
+            <div id="time-monitor-audio" style="font-size:20px; font-weight:700; color:var(--text-main); margin-top:2px;">-</div>
+            <div id="diff-monitor-audio" style="font-size:13px; color:#047857; font-weight:700; margin-top:2px;">-</div>
           </div>
-          <div style="margin-top:10px; font-size:12px; color:#94a3b8; border-top:1px solid #334155; padding-top:8px;">
-            <div>最新案件: <span id="project-monitor-audio" style="color:#e2e8f0; font-weight:500;">-</span></div>
-            <div style="margin-top:2px;">音声未生成: <span id="pending-monitor-audio" style="color:#f59e0b; font-weight:600;">-</span></div>
+          <div style="margin-top:12px; font-size:12px; color:var(--text-muted); border-top:1px solid var(--border-color); padding-top:10px;">
+            <div>最新案件: <span id="project-monitor-audio" style="color:var(--text-main); font-weight:600;">-</span></div>
+            <div style="margin-top:4px;">音声未生成: <span id="pending-monitor-audio" style="color:#d97706; font-weight:700;">-</span></div>
           </div>
         </div>
       </div>
 
       <!-- 停滞・エラー警告バナー（停滞案件がある場合に表示） -->
-      <div id="stalled-alert-box" class="hidden" style="margin-top:16px; background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.4); border-radius: 12px; padding: 14px 18px;">
+      <div id="stalled-alert-box" class="hidden" style="margin-top:16px; background: #fef2f2; border: 1px solid #fca5a5; border-radius: 12px; padding: 14px 18px; box-shadow: 0 1px 3px rgba(239, 68, 68, 0.08);">
         <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
           <div style="display:flex; align-items:center; gap:10px;">
-            <span style="font-size:22px;">🚨</span>
+            <span style="font-size:24px;">🚨</span>
             <div>
-              <div style="font-weight:700; color:#f87171; font-size:14px;" id="stalled-alert-title">パイプライン停滞・要確認の警告</div>
-              <div style="font-size:12px; color:#cbd5e1; margin-top:2px;" id="stalled-alert-desc">生成途中で長時間更新が止まっている案件があります。</div>
+              <div style="font-weight:700; color:#991b1b; font-size:14px;" id="stalled-alert-title">パイプライン停滞・要確認の警告</div>
+              <div style="font-size:13px; color:#7f1d1d; margin-top:2px; font-weight:500;" id="stalled-alert-desc">生成途中で長時間更新が止まっている案件があります。</div>
             </div>
           </div>
-          <button id="show-stalled-btn" class="btn btn-secondary btn-sm" style="border-color:#ef4444; color:#fca5a5;">停滞案件の内訳を表示 ▾</button>
+          <button id="show-stalled-btn" class="btn btn-sm" style="background:#ffffff; border:1px solid #ef4444; color:#b91c1c; font-weight:600; padding:6px 14px; cursor:pointer;">停滞案件の内訳を表示 ▾</button>
         </div>
-        <div id="stalled-list-container" class="hidden" style="margin-top:12px; padding-top:12px; border-top:1px dashed rgba(239, 68, 68, 0.3); font-size:12px; color:#e2e8f0;">
-          <ul id="stalled-list-ul" style="list-style:none; padding:0; margin:0; display:flex; flex-direction:column; gap:6px;"></ul>
+        <div id="stalled-list-container" class="hidden" style="margin-top:12px; padding-top:12px; border-top:1px dashed #fca5a5; font-size:12px;">
+          <ul id="stalled-list-ul" style="list-style:none; padding:0; margin:0; display:flex; flex-direction:column; gap:8px;"></ul>
         </div>
       </div>
     </section>

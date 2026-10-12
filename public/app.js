@@ -457,16 +457,16 @@ function updatePipelineMonitor(status) {
       stalledUl.innerHTML = stalledList.map(item => {
         const ageHours = ((Date.now() - new Date(item.createdTime).getTime()) / 3600000).toFixed(1);
         return `
-          <li style="display:flex; justify-content:space-between; align-items:center; background:rgba(0,0,0,0.2); padding:6px 10px; border-radius:6px;">
+          <li style="display:flex; justify-content:space-between; align-items:center; background:#ffffff; border:1px solid #fee2e2; padding:8px 12px; border-radius:6px; box-shadow:0 1px 2px rgba(0,0,0,0.03);">
             <div style="display:flex; align-items:center; gap:8px;">
-              <span style="color:#f87171;">⏳</span>
-              <span style="font-weight:600; color:#f1f5f9;">${escapeHtml(formatProjectTitle(item.name))}</span>
-              <span style="color:#94a3b8; font-size:11px;">(${ageHours}時間前に投入)</span>
+              <span style="color:#ef4444; font-size:14px;">⏳</span>
+              <span style="font-weight:700; color:var(--text-main); font-size:13px;">${escapeHtml(formatProjectTitle(item.name))}</span>
+              <span style="color:var(--text-muted); font-size:11px;">(${ageHours}時間前に投入)</span>
             </div>
             <div style="display:flex; align-items:center; gap:8px;">
-              <span class="badge badge-warning" style="font-size:11px;">漫画: ${item.mangaCount}/8コマ</span>
+              <span class="badge badge-warning" style="font-size:11px; font-weight:600;">漫画: ${item.mangaCount}/8コマ</span>
               <span class="badge ${item.hasTitle ? 'badge-success' : 'badge-subtle'}" style="font-size:11px;">${item.hasTitle ? '表紙あり' : '表紙なし'}</span>
-              <button class="btn btn-secondary btn-sm" onclick="filterByProjectName('${escapeHtml(item.name)}')" style="font-size:11px; padding:2px 8px;">確認</button>
+              <button class="btn btn-secondary btn-sm" onclick="filterByProjectName('${escapeHtml(item.name)}')" style="font-size:11px; padding:3px 10px; font-weight:600;">確認</button>
             </div>
           </li>
         `;
