@@ -270,6 +270,76 @@ async function saveCatalog(catalogData, existingFileId, env) {
 }
 
 /**
+ * 任意のフォルダへ JSON ファイルを保存・更新する
+ */
+async function saveJsonToFolder(folderId, fileName, jsonData, env) {
+  const token = await getAccessToken(env);
+  const jsonStr = JSON.stringify(jsonData, null, 2);
+  const encoder = new TextEncoder();
+  const jsonBytes = encoder.encode(jsonStr);
+
+  const searchRes = await driveFetch(
+    `files?q='${folderId}'+in+parents+and+name='${fileName}'+and+trashed=false&fields=files(id)&spaces=drive`,
+    env
+  );
+  const searchData = await searchRes.json();
+  const existingFile = searchData.files?.[0];
+
+  if (existingFile) {
+    const patchRes = await fetch(
+      `https://www.googleapis.com/upload/drive/v3/files/${existingFile.id}?uploadType=media`,
+      {
+        method: "PATCH",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json"
+        },
+        body: jsonBytes
+      }
+    );
+    if (!patchRes.ok) throw new Error(`ファイル更新失敗 (${patchRes.status}): ${await patchRes.text()}`);
+    return { fileId: existingFile.id, action: "updated" };
+  } else {
+    const boundary = "-------314159265358979323846";
+    const delimiter = `\r\n--${boundary}\r\n`;
+    const closeDelimiter = `\r\n--${boundary}--`;
+    const metadata = {
+      name: fileName,
+      parents: [folderId],
+      mimeType: "application/json"
+    };
+
+    const p1 = encoder.encode(`${delimiter}Content-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(metadata)}\r\n`);
+    const p2 = encoder.encode(`--${boundary}\r\nContent-Type: application/json\r\n\r\n`);
+    const p3 = jsonBytes;
+    const p4 = encoder.encode(closeDelimiter);
+
+    const body = new Uint8Array(p1.length + p2.length + p3.length + p4.length);
+    let offset = 0;
+    body.set(p1, offset); offset += p1.length;
+    body.set(p2, offset); offset += p2.length;
+    body.set(p3, offset); offset += p3.length;
+    body.set(p4, offset);
+
+    const postRes = await fetch(
+      "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart",
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": `multipart/related; boundary=${boundary}`,
+          "Content-Length": String(body.length)
+        },
+        body
+      }
+    );
+    if (!postRes.ok) throw new Error(`ファイル新規作成失敗 (${postRes.status}): ${await postRes.text()}`);
+    const created = await postRes.json();
+    return { fileId: created.id, action: "created" };
+  }
+}
+
+/**
  * Google Drive の projects フォルダをスキャンし、_catalog.json を差分同期する
  */
 async function syncCatalog(env) {
@@ -589,7 +659,7 @@ export default {
       // 3. API: プロジェクト詳細取得 (/api/project/:id)
       // ※ モーダルクリック時にオンデマンドで個別フォルダ内を取得
       // ----------------------------------------------------
-      if (pathname.startsWith("/api/project/")) {
+      if (pathname.startsWith("/api/project/") && !pathname.endsWith("/video-mapping")) {
         const projectId = pathname.replace("/api/project/", "").trim();
         if (!projectId) throw new Error("プロジェクトIDが指定されていません。");
 
@@ -614,6 +684,11 @@ export default {
         const metadataFile = files.find(f => f.name === "manga_done.json");
         const titleDoneFile = files.find(f => f.name === "title_done.json");
         const youtubeFile = files.find(f => f.name === "youtube.json");
+        const videoMappingFile = files.find(f => f.name === "video_mapping.json");
+
+        // フォルダ内のMP4動画クリップ（AI生成動画など）
+        const videoFiles = files.filter(f => /\.mp4$/i.test(f.name) && f.name !== "narration_tts.mp3")
+          .sort((a, b) => a.name.localeCompare(b.name));
 
         let narrationText = "";
         if (narrationFile) {
@@ -653,6 +728,16 @@ export default {
           }
         }
 
+        let videoMappingJson = null;
+        if (videoMappingFile) {
+          const vmRes = await driveFetch(`files/${videoMappingFile.id}?alt=media`, env);
+          if (vmRes.ok) {
+            try {
+              videoMappingJson = await vmRes.json();
+            } catch (e) {}
+          }
+        }
+
         return new Response(JSON.stringify({
           success: true,
           projectId,
@@ -669,6 +754,12 @@ export default {
             size: t.size,
             url: `/api/image/${t.id}`
           })),
+          videoClips: videoFiles.map(v => ({
+            id: v.id,
+            name: v.name,
+            size: v.size ? Number(v.size) : 0,
+            url: `/api/video/${v.id}`
+          })),
           narrationText,
           hasAudio: !!audioFile,
           audioFile: audioFile ? {
@@ -679,7 +770,28 @@ export default {
           } : null,
           metadata: metadataJson,
           titleMetadata: titleJson,
-          youtube: youtubeJson
+          youtube: youtubeJson,
+          videoMapping: videoMappingJson
+        }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json; charset=utf-8" }
+        });
+      }
+
+      // ----------------------------------------------------
+      // 3-2. API: 動画シーン割当 保存 (/api/project/:id/video-mapping)
+      // ----------------------------------------------------
+      if (pathname.startsWith("/api/project/") && pathname.endsWith("/video-mapping") && request.method === "POST") {
+        const projectId = pathname.replace("/api/project/", "").replace("/video-mapping", "").trim();
+        if (!projectId) throw new Error("プロジェクトIDが指定されていません。");
+
+        const body = await request.json();
+        const result = await saveJsonToFolder(projectId, "video_mapping.json", body, env);
+
+        return new Response(JSON.stringify({
+          success: true,
+          projectId,
+          ...result,
+          savedAt: new Date().toISOString()
         }), {
           headers: { ...corsHeaders, "Content-Type": "application/json; charset=utf-8" }
         });
@@ -721,6 +833,29 @@ export default {
 
         const contentType = audioRes.headers.get("content-type") || "audio/mpeg";
         return new Response(audioRes.body, {
+          headers: {
+            "Content-Type": contentType,
+            "Accept-Ranges": "bytes",
+            "Cache-Control": "public, max-age=86400, s-maxage=86400",
+            ...corsHeaders
+          }
+        });
+      }
+
+      // ----------------------------------------------------
+      // 4-3. API: 動画プロキシ配信 (/api/video/:fileId)
+      // ----------------------------------------------------
+      if (pathname.startsWith("/api/video/")) {
+        const fileId = pathname.replace("/api/video/", "").trim();
+        if (!fileId) return new Response("File ID Required", { status: 400 });
+
+        const videoRes = await driveFetch(`files/${fileId}?alt=media`, env);
+        if (!videoRes.ok) {
+          return new Response("Video Not Found", { status: videoRes.status });
+        }
+
+        const contentType = videoRes.headers.get("content-type") || "video/mp4";
+        return new Response(videoRes.body, {
           headers: {
             "Content-Type": contentType,
             "Accept-Ranges": "bytes",

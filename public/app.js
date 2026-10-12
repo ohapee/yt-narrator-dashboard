@@ -129,6 +129,29 @@ const ytCardDuration = document.getElementById("yt-card-duration");
 const ytCardViews = document.getElementById("yt-card-views");
 const ytCardLinkBtn = document.getElementById("yt-card-link-btn");
 
+// 動画シーン割当スタジオ要素
+const modalTabVideoBadge = document.getElementById("modal-tab-video-badge");
+const videoMappingStatusBadge = document.getElementById("video-mapping-status-badge");
+const videoAutoEqualizeBtn = document.getElementById("video-auto-equalize-btn");
+const videoAutoScriptBtn = document.getElementById("video-auto-script-btn");
+const videoAudioPlayBtn = document.getElementById("video-audio-play-btn");
+const videoAudioPlayIcon = document.getElementById("video-audio-play-icon");
+const videoAudioTimeDisplay = document.getElementById("video-audio-time-display");
+const videoAudioSeekbar = document.getElementById("video-audio-seekbar");
+const videoTotalDurationDisplay = document.getElementById("video-total-duration-display");
+const videoSubtitleEnableChk = document.getElementById("video-subtitle-enable-chk");
+const videoScenesContainer = document.getElementById("video-scenes-container");
+const videoSaveDriveBtn = document.getElementById("video-save-drive-btn");
+const videoSaveStatus = document.getElementById("video-save-status");
+const videoExportSrtBtn = document.getElementById("video-export-srt-btn");
+const videoCopyFfmpegBtn = document.getElementById("video-copy-ffmpeg-btn");
+
+// 動画スタジオ用状態
+let currentScenes = [];
+let currentVideoAudio = new Audio();
+let videoStudioTotalDuration = 63.0; // デフォルト63秒 (7秒×9シーン)
+let isAudioSeeking = false;
+
 // ----------------------------------------------------
 // 初期化
 // ----------------------------------------------------
@@ -308,6 +331,86 @@ function initEvents() {
       showStalledBtn.textContent = isHidden ? "停滞案件の内訳を閉じる ▴" : "停滞案件の内訳を表示 ▾";
     });
   }
+
+  // 🎬 動画シーン割当スタジオイベント登録
+  if (videoAutoEqualizeBtn) {
+    videoAutoEqualizeBtn.addEventListener("click", () => {
+      applyEqualSplit();
+    });
+  }
+  if (videoAutoScriptBtn) {
+    videoAutoScriptBtn.addEventListener("click", () => {
+      applyScriptRatioSplit();
+    });
+  }
+  if (videoAudioPlayBtn) {
+    videoAudioPlayBtn.addEventListener("click", () => {
+      toggleVideoAudioPlay();
+    });
+  }
+  if (videoAudioSeekbar) {
+    videoAudioSeekbar.addEventListener("input", () => {
+      isAudioSeeking = true;
+      if (currentVideoAudio && currentVideoAudio.duration) {
+        const targetTime = (videoAudioSeekbar.value / 100) * currentVideoAudio.duration;
+        if (videoAudioTimeDisplay) {
+          videoAudioTimeDisplay.textContent = `${formatSeconds(targetTime)} / ${formatSeconds(currentVideoAudio.duration)}`;
+        }
+      }
+    });
+    videoAudioSeekbar.addEventListener("change", () => {
+      isAudioSeeking = false;
+      if (currentVideoAudio && currentVideoAudio.duration) {
+        currentVideoAudio.currentTime = (videoAudioSeekbar.value / 100) * currentVideoAudio.duration;
+      }
+    });
+  }
+  if (videoSubtitleEnableChk) {
+    videoSubtitleEnableChk.addEventListener("change", () => {
+      updateSubtitleVisibility();
+    });
+  }
+  if (videoSaveDriveBtn) {
+    videoSaveDriveBtn.addEventListener("click", () => {
+      saveVideoMappingToDrive();
+    });
+  }
+  if (videoExportSrtBtn) {
+    videoExportSrtBtn.addEventListener("click", () => {
+      exportSrtFile();
+    });
+  }
+  if (videoCopyFfmpegBtn) {
+    videoCopyFfmpegBtn.addEventListener("click", () => {
+      copyFfmpegCommand();
+    });
+  }
+
+  // 音声再生プレビューとシークバーの連動イベント
+  currentVideoAudio.addEventListener("timeupdate", () => {
+    if (!currentVideoAudio.duration || isAudioSeeking) return;
+    const cur = currentVideoAudio.currentTime;
+    const dur = currentVideoAudio.duration;
+    const pct = (cur / dur) * 100;
+    if (videoAudioSeekbar) videoAudioSeekbar.value = pct;
+    if (videoAudioTimeDisplay) {
+      videoAudioTimeDisplay.textContent = `${formatSeconds(cur)} / ${formatSeconds(dur)}`;
+    }
+    highlightActiveScene(cur);
+  });
+
+  currentVideoAudio.addEventListener("ended", () => {
+    if (videoAudioPlayIcon) videoAudioPlayIcon.textContent = "▶️";
+    highlightActiveScene(-1);
+  });
+
+  currentVideoAudio.addEventListener("pause", () => {
+    if (videoAudioPlayIcon) videoAudioPlayIcon.textContent = "▶️";
+  });
+
+  currentVideoAudio.addEventListener("play", () => {
+    if (videoAudioPlayIcon) videoAudioPlayIcon.textContent = "⏸️";
+  });
 }
 
 // ----------------------------------------------------
@@ -763,6 +866,9 @@ function renderProjectDetail(data, projectName) {
 
   // 5. YouTube 元動画情報（youtube.json）のセットアップ
   setupYoutubeInfo(data.youtube);
+
+  // 6. 動画シーン割当スタジオのセットアップ
+  setupVideoMapping(data, projectName);
 }
 
 function setupMangaViewer(images) {
@@ -838,6 +944,13 @@ function closeModal() {
   if (driveAudioElement) {
     driveAudioElement.pause();
     driveAudioElement.src = "";
+  }
+  if (currentVideoAudio) {
+    currentVideoAudio.pause();
+    currentVideoAudio.src = "";
+  }
+  if (videoAudioPlayIcon) {
+    videoAudioPlayIcon.textContent = "▶️";
   }
   modalYoutubeBadge.classList.add("hidden");
   modalYoutubeLink.classList.add("hidden");
@@ -1202,3 +1315,630 @@ function formatViews(count) {
   if (isNaN(n)) return String(count);
   return `${n.toLocaleString("ja-JP")} 回`;
 }
+
+// ----------------------------------------------------
+// 🎬 動画シーン割当スタジオ（タイムライン編集）
+// ----------------------------------------------------
+
+/**
+ * プロジェクト詳細モーダル表示時に動画シーン割当スタジオを初期化
+ */
+function setupVideoMapping(data, projectName) {
+  if (videoSaveStatus) videoSaveStatus.textContent = "";
+
+  // 1. ナレーション音声の準備
+  if (data.hasAudio && data.audioFile) {
+    currentVideoAudio.src = data.audioFile.url;
+    currentVideoAudio.onloadedmetadata = () => {
+      if (currentVideoAudio.duration && !isNaN(currentVideoAudio.duration) && currentVideoAudio.duration > 0) {
+        // 保存済みデータがなければ音声実尺を採用
+        if (!data.videoMapping || !data.videoMapping.totalDuration) {
+          videoStudioTotalDuration = +(currentVideoAudio.duration).toFixed(1);
+          applyEqualSplit(false);
+          updateTotalDurationDisplay();
+          renderVideoScenesUi();
+        } else {
+          updateTotalDurationDisplay();
+        }
+      }
+    };
+  } else {
+    // 音声がまだない場合は原稿文字数から推定総尺を算出（1分350文字、最低30秒、既定63秒）
+    const text = data.narrationText || "";
+    const estSec = text.length > 0 ? Math.max(30, Math.round((text.length / 350) * 60)) : 63;
+    videoStudioTotalDuration = estSec;
+    currentVideoAudio.removeAttribute("src");
+  }
+
+  // 2. 既存の Drive 割当データ（video_mapping.json）の復元または新規9シーン作成
+  if (data.videoMapping && Array.isArray(data.videoMapping.scenes) && data.videoMapping.scenes.length === 9) {
+    // 既存保存データを復元
+    currentScenes = JSON.parse(JSON.stringify(data.videoMapping.scenes));
+    if (data.videoMapping.totalDuration) {
+      videoStudioTotalDuration = parseFloat(data.videoMapping.totalDuration) || videoStudioTotalDuration;
+    }
+    if (data.videoMapping.subtitlesEnabled !== undefined && videoSubtitleEnableChk) {
+      videoSubtitleEnableChk.checked = !!data.videoMapping.subtitlesEnabled;
+    }
+    if (videoMappingStatusBadge) {
+      videoMappingStatusBadge.textContent = "✅ Drive保存済み";
+      videoMappingStatusBadge.className = "badge badge-success";
+    }
+    if (modalTabVideoBadge) {
+      modalTabVideoBadge.classList.remove("hidden");
+    }
+  } else {
+    // 新規作成：全9シーン（表紙1枚 ＋ 8コマ漫画8枚）
+    const fullText = (data.narrationText || "").trim();
+    const sentences = fullText
+      ? fullText.split(/(?<=[。！？\n])/).map(s => s.trim()).filter(Boolean)
+      : [];
+    const sceneTexts = splitIntoChunks(sentences, 9);
+
+    currentScenes = [];
+
+    // シーン0: 表紙・タイトルカード
+    const titleImg = (data.titleImages && data.titleImages.length > 0) ? data.titleImages[0] : null;
+    currentScenes.push({
+      index: 0,
+      label: "🎨 表紙・タイトルカード",
+      type: "title",
+      imageFileId: titleImg ? titleImg.id : "",
+      imageFileName: titleImg ? titleImg.name : "00_title.jpg",
+      imageUrl: titleImg ? titleImg.url : "",
+      clipFileId: "",
+      clipFileName: "",
+      startSec: 0,
+      endSec: 0,
+      durationSec: 0,
+      transition: "zoom_in",
+      subtitleText: sceneTexts[0] || (titleImg ? (data.metadata?.synopsis ? data.metadata.synopsis.slice(0, 40) : "") : "")
+    });
+
+    // シーン1〜8: 1コマ目〜8コマ目
+    for (let i = 1; i <= 8; i++) {
+      const mangaImg = (data.mangaImages && data.mangaImages[i - 1]) ? data.mangaImages[i - 1] : null;
+      currentScenes.push({
+        index: i,
+        label: `🖼️ 第${i}コマ`,
+        type: "manga",
+        imageFileId: mangaImg ? mangaImg.id : "",
+        imageFileName: mangaImg ? mangaImg.name : `manga_0${i}.jpg`,
+        imageUrl: mangaImg ? mangaImg.url : "",
+        clipFileId: "",
+        clipFileName: "",
+        startSec: 0,
+        endSec: 0,
+        durationSec: 0,
+        transition: (i % 2 === 0) ? "zoom_out" : "zoom_in",
+        subtitleText: sceneTexts[i] || ""
+      });
+    }
+
+    // 初期の自動均等割り（9分割）を適用
+    applyEqualSplit(false);
+
+    if (videoMappingStatusBadge) {
+      videoMappingStatusBadge.textContent = "未保存";
+      videoMappingStatusBadge.className = "badge badge-subtle";
+    }
+    if (modalTabVideoBadge) {
+      modalTabVideoBadge.classList.add("hidden");
+    }
+  }
+
+  updateTotalDurationDisplay();
+  renderVideoScenesUi();
+  updateSubtitleVisibility();
+}
+
+/**
+ * テキスト文配列を N 個のチャンクに均等配分する
+ */
+function splitIntoChunks(sentences, n) {
+  const result = Array.from({ length: n }, () => "");
+  if (!sentences || sentences.length === 0) return result;
+
+  const chunkSize = Math.max(1, Math.ceil(sentences.length / n));
+  for (let i = 0; i < n; i++) {
+    const start = i * chunkSize;
+    const end = Math.min(sentences.length, start + chunkSize);
+    if (start < sentences.length) {
+      result[i] = sentences.slice(start, end).join(" ");
+    }
+  }
+  return result;
+}
+
+/**
+ * ⏱️ 秒数の自動均等割り (9分割)
+ */
+function applyEqualSplit(shouldRender = true) {
+  const total = Math.max(9.0, videoStudioTotalDuration);
+  const unitSec = +(total / 9).toFixed(1);
+  let currentStart = 0.0;
+
+  currentScenes.forEach((scene, idx) => {
+    const isLast = (idx === currentScenes.length - 1);
+    scene.startSec = +currentStart.toFixed(1);
+    if (isLast) {
+      scene.endSec = +total.toFixed(1);
+      scene.durationSec = +(scene.endSec - scene.startSec).toFixed(1);
+    } else {
+      scene.durationSec = unitSec;
+      scene.endSec = +(currentStart + unitSec).toFixed(1);
+      currentStart += unitSec;
+    }
+  });
+
+  markVideoMappingDirty();
+  updateTotalDurationDisplay();
+  if (shouldRender) {
+    renderVideoScenesUi();
+  }
+}
+
+/**
+ * ⚡ ナレーション原稿の文字数比率で秒数を自動配分
+ */
+function applyScriptRatioSplit() {
+  const total = Math.max(9.0, videoStudioTotalDuration);
+  // 各シーンの文字数（最低3文字とみなす）
+  const charCounts = currentScenes.map(s => Math.max(3, (s.subtitleText || "").replace(/\s/g, "").length));
+  const sumChars = charCounts.reduce((a, b) => a + b, 0);
+
+  let currentStart = 0.0;
+  currentScenes.forEach((scene, idx) => {
+    const isLast = (idx === currentScenes.length - 1);
+    scene.startSec = +currentStart.toFixed(1);
+    if (isLast) {
+      scene.endSec = +total.toFixed(1);
+      scene.durationSec = +(scene.endSec - scene.startSec).toFixed(1);
+    } else {
+      // 比率で秒数を算出（最低2.0秒保証）
+      const ratio = charCounts[idx] / sumChars;
+      const rawSec = Math.max(2.0, +(total * ratio).toFixed(1));
+      scene.durationSec = rawSec;
+      scene.endSec = +(currentStart + rawSec).toFixed(1);
+      currentStart += rawSec;
+    }
+  });
+
+  // 最終シーンが超過または不足した場合は全体を調整
+  const lastEnd = currentScenes[currentScenes.length - 1].endSec;
+  if (Math.abs(lastEnd - total) > 0.5) {
+    videoStudioTotalDuration = +lastEnd.toFixed(1);
+  }
+
+  markVideoMappingDirty();
+  updateTotalDurationDisplay();
+  renderVideoScenesUi();
+}
+
+/**
+ * 変更ありマークを付与
+ */
+function markVideoMappingDirty() {
+  if (videoMappingStatusBadge) {
+    videoMappingStatusBadge.textContent = "⚠️ 未保存の変更あり";
+    videoMappingStatusBadge.className = "badge badge-warning";
+  }
+}
+
+/**
+ * 合計尺表示を更新
+ */
+function updateTotalDurationDisplay() {
+  if (!videoTotalDurationDisplay) return;
+  const mins = Math.floor(videoStudioTotalDuration / 60);
+  const secs = (videoStudioTotalDuration % 60).toFixed(1);
+  videoTotalDurationDisplay.textContent = `${videoStudioTotalDuration.toFixed(1)} 秒 (${mins}分${secs}秒)`;
+
+  if (videoAudioTimeDisplay && currentVideoAudio && currentVideoAudio.duration) {
+    videoAudioTimeDisplay.textContent = `${formatSeconds(currentVideoAudio.currentTime)} / ${formatSeconds(currentVideoAudio.duration)}`;
+  } else if (videoAudioTimeDisplay) {
+    videoAudioTimeDisplay.textContent = `00:00 / ${formatSeconds(videoStudioTotalDuration)}`;
+  }
+}
+
+/**
+ * 全9シーンのUIカードを描画
+ */
+function renderVideoScenesUi() {
+  if (!videoScenesContainer) return;
+  videoScenesContainer.innerHTML = "";
+
+  const clips = (currentProjectDetail && currentProjectDetail.videoClips) ? currentProjectDetail.videoClips : [];
+
+  currentScenes.forEach((scene, idx) => {
+    const card = document.createElement("div");
+    card.className = "video-scene-card";
+    card.id = `video-scene-card-${idx}`;
+    card.dataset.sceneIndex = idx;
+
+    // サムネイル部分
+    const thumbSrc = scene.imageUrl || (scene.imageFileId ? `/api/image/${scene.imageFileId}` : "");
+    const thumbHtml = thumbSrc
+      ? `<img src="${thumbSrc}" alt="${escapeHtml(scene.label)}" loading="lazy">`
+      : `<div style="display:flex; align-items:center; justify-content:center; height:100%; color:#94a3b8; font-size:24px;">🖼️</div>`;
+
+    // 動画クリップ選択肢
+    const clipOptions = [
+      `<option value="" ${!scene.clipFileId ? "selected" : ""}>🖼️ 静止画（画像演出エフェクト適用）</option>`,
+      ...clips.map(c => `
+        <option value="${c.id}" ${scene.clipFileId === c.id ? "selected" : ""}>
+          🎥 動画: ${escapeHtml(c.name)} ${c.size ? `(${(c.size / (1024*1024)).toFixed(1)}MB)` : ''}
+        </option>
+      `)
+    ].join("");
+
+    // カメラ演出オプション
+    const transitions = [
+      { id: "zoom_in", label: "🔍 ズームイン（標準）" },
+      { id: "zoom_out", label: "🔎 ズームアウト" },
+      { id: "pan_left", label: "⬅️ 左へパン" },
+      { id: "pan_right", label: "➡️ 右へパン" },
+      { id: "fade", label: "✨ フェードイン/アウト" },
+      { id: "none", label: "⏹️ 固定（演出なし）" }
+    ];
+    const transOptions = transitions.map(t => `
+      <option value="${t.id}" ${scene.transition === t.id ? "selected" : ""}>${t.label}</option>
+    `).join("");
+
+    card.innerHTML = `
+      <div class="scene-thumb-col">
+        <div class="scene-thumb-wrap" title="クリックしてフル画像を表示">
+          ${thumbHtml}
+          ${scene.clipFileId ? `<span class="scene-clip-badge">🎥 動画使用</span>` : ''}
+        </div>
+        <div class="scene-label">${escapeHtml(scene.label)}</div>
+      </div>
+
+      <div class="scene-controls-col">
+        <!-- 上段：素材選択 ＆ カメラ演出 ＆ 再生ボタン -->
+        <div class="scene-controls-grid">
+          <div>
+            <label class="scene-field-label">🎞️ 使用する素材（静止画 または 動画クリップ）:</label>
+            <select class="scene-select scene-clip-select">
+              ${clipOptions}
+            </select>
+          </div>
+          <div>
+            <label class="scene-field-label">🎥 カメラ・画面演出:</label>
+            <select class="scene-select scene-trans-select">
+              ${transOptions}
+            </select>
+          </div>
+          <div style="display:flex; align-items:flex-end;">
+            <button type="button" class="btn btn-secondary btn-sm scene-play-btn" style="width:100%; font-weight:600;" title="このシーンの開始秒から音声をプレビュー再生します">
+              ▶️ このシーンから再生
+            </button>
+          </div>
+        </div>
+
+        <!-- 中段：タイムライン秒数コントロール -->
+        <div class="scene-time-row" style="margin-top:10px; display:flex; gap:16px; align-items:center; flex-wrap:wrap; background:#f8fafc; padding:8px 12px; border-radius:6px; border:1px solid #e2e8f0;">
+          <div style="font-size:12px; color:var(--text-main);">
+            開始: <strong class="scene-start-display" style="color:#2563eb; font-size:13px;">${scene.startSec.toFixed(1)}s</strong>
+          </div>
+          <div style="font-size:12px; color:var(--text-main);">
+            終了: <strong class="scene-end-display" style="color:#2563eb; font-size:13px;">${scene.endSec.toFixed(1)}s</strong>
+          </div>
+          <div style="display:flex; align-items:center; gap:6px; margin-left:auto;">
+            <label class="scene-field-label" style="margin-bottom:0;">長さ（秒）:</label>
+            <input type="number" step="0.1" min="0.5" class="scene-duration-input" value="${scene.durationSec.toFixed(1)}" style="width:75px; padding:4px 8px; border:1px solid #cbd5e1; border-radius:4px; font-weight:700; font-size:13px; text-align:right;">
+            <span style="font-size:12px; color:var(--text-muted);">秒</span>
+          </div>
+        </div>
+
+        <!-- 下段：字幕テキスト（オプション） -->
+        <div class="scene-subtitle-box" style="margin-top:10px;">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+            <label class="scene-field-label" style="margin-bottom:0;">💬 ナレーション字幕文（オプション・任意）:</label>
+            <span class="scene-sub-chars" style="font-size:11px; color:var(--text-muted);">
+              <strong>${(scene.subtitleText || "").length}</strong> 文字
+            </span>
+          </div>
+          <textarea class="scene-sub-textarea" placeholder="このシーンで表示する字幕テキストを入力（空欄でも動画化可能）" rows="2" style="width:100%; padding:6px 10px; border:1px solid #cbd5e1; border-radius:6px; font-size:12px; resize:vertical;">${escapeHtml(scene.subtitleText || "")}</textarea>
+        </div>
+      </div>
+    `;
+
+    // イベントバインド
+    const clipSelect = card.querySelector(".scene-clip-select");
+    const transSelect = card.querySelector(".scene-trans-select");
+    const playBtn = card.querySelector(".scene-play-btn");
+    const durInput = card.querySelector(".scene-duration-input");
+    const subTextarea = card.querySelector(".scene-sub-textarea");
+    const subCharsSpan = card.querySelector(".scene-sub-chars strong");
+
+    clipSelect.addEventListener("change", () => {
+      scene.clipFileId = clipSelect.value;
+      scene.clipFileName = clipSelect.selectedOptions[0]?.text || "";
+      markVideoMappingDirty();
+      renderVideoScenesUi();
+    });
+
+    transSelect.addEventListener("change", () => {
+      scene.transition = transSelect.value;
+      markVideoMappingDirty();
+    });
+
+    playBtn.addEventListener("click", () => {
+      playFromScene(idx);
+    });
+
+    durInput.addEventListener("change", () => {
+      const newDur = Math.max(0.5, parseFloat(durInput.value) || 1.0);
+      scene.durationSec = +newDur.toFixed(1);
+      recalculateSceneTimingsFrom(idx);
+    });
+
+    subTextarea.addEventListener("input", () => {
+      scene.subtitleText = subTextarea.value;
+      if (subCharsSpan) subCharsSpan.textContent = subTextarea.value.length;
+      markVideoMappingDirty();
+    });
+
+    videoScenesContainer.appendChild(card);
+  });
+}
+
+/**
+ * 任意のシーンの長さ変更を受けて以降の開始・終了秒を自動再計算
+ */
+function recalculateSceneTimingsFrom(fromIndex) {
+  for (let i = fromIndex; i < currentScenes.length; i++) {
+    const s = currentScenes[i];
+    if (i === 0) {
+      s.startSec = 0.0;
+    } else {
+      s.startSec = +currentScenes[i - 1].endSec.toFixed(1);
+    }
+    s.endSec = +(s.startSec + s.durationSec).toFixed(1);
+  }
+
+  videoStudioTotalDuration = +currentScenes[currentScenes.length - 1].endSec.toFixed(1);
+  markVideoMappingDirty();
+  updateTotalDurationDisplay();
+
+  // カード表示の数値のみを更新（再描画によるフォーカス喪失を防止）
+  for (let i = fromIndex; i < currentScenes.length; i++) {
+    const card = document.getElementById(`video-scene-card-${i}`);
+    if (card) {
+      const s = currentScenes[i];
+      const startEl = card.querySelector(".scene-start-display");
+      const endEl = card.querySelector(".scene-end-display");
+      const durInput = card.querySelector(".scene-duration-input");
+      if (startEl) startEl.textContent = `${s.startSec.toFixed(1)}s`;
+      if (endEl) endEl.textContent = `${s.endSec.toFixed(1)}s`;
+      if (durInput && i > fromIndex) durInput.value = s.durationSec.toFixed(1);
+    }
+  }
+}
+
+/**
+ * 指定シーンの開始秒から音声プレビュー再生
+ */
+function playFromScene(index) {
+  if (index < 0 || index >= currentScenes.length) return;
+  const scene = currentScenes[index];
+  if (!currentVideoAudio || !currentVideoAudio.src) {
+    alert("ナレーション音声（narration_tts.mp3）がまだ登録されていません。\nナレーションタブから音声を生成するか、Google Driveに音声を配置してください。");
+    return;
+  }
+
+  currentVideoAudio.currentTime = scene.startSec;
+  currentVideoAudio.play().catch(e => console.warn("音声再生エラー:", e));
+  if (videoAudioPlayIcon) videoAudioPlayIcon.textContent = "⏸️";
+  highlightActiveScene(scene.startSec);
+}
+
+/**
+ * 音声再生トグル
+ */
+function toggleVideoAudioPlay() {
+  if (!currentVideoAudio || !currentVideoAudio.src) {
+    alert("ナレーション音声がまだ登録されていません。");
+    return;
+  }
+
+  if (currentVideoAudio.paused) {
+    currentVideoAudio.play().then(() => {
+      if (videoAudioPlayIcon) videoAudioPlayIcon.textContent = "⏸️";
+    }).catch(e => alert("再生エラー: " + e.message));
+  } else {
+    currentVideoAudio.pause();
+    if (videoAudioPlayIcon) videoAudioPlayIcon.textContent = "▶️";
+  }
+}
+
+/**
+ * 現在再生中の秒数に該当するシーンカードをハイライト
+ */
+function highlightActiveScene(currentTime) {
+  if (currentTime < 0) {
+    document.querySelectorAll(".video-scene-card").forEach(c => c.classList.remove("active-scene"));
+    return;
+  }
+
+  currentScenes.forEach((s, idx) => {
+    const card = document.getElementById(`video-scene-card-${idx}`);
+    if (card) {
+      const isActive = (currentTime >= s.startSec && currentTime < s.endSec);
+      card.classList.toggle("active-scene", isActive);
+    }
+  });
+}
+
+/**
+ * 字幕オプションチェックボックスの切り替え時の表示更新
+ */
+function updateSubtitleVisibility() {
+  const isEnabled = videoSubtitleEnableChk ? videoSubtitleEnableChk.checked : true;
+  document.querySelectorAll(".scene-subtitle-box").forEach(box => {
+    box.style.opacity = isEnabled ? "1.0" : "0.55";
+    const textarea = box.querySelector(".scene-sub-textarea");
+    if (textarea) {
+      textarea.title = isEnabled ? "字幕有効" : "字幕は無効化設定中です（出力から除外されます）";
+    }
+  });
+}
+
+/**
+ * 💾 Google Drive に動画割当（video_mapping.json）を保存
+ */
+async function saveVideoMappingToDrive() {
+  if (!currentProjectDetail) return;
+  const projectId = currentProjectDetail.id;
+
+  const payload = {
+    projectId,
+    version: "1.0",
+    updatedAt: new Date().toISOString(),
+    subtitlesEnabled: videoSubtitleEnableChk ? videoSubtitleEnableChk.checked : true,
+    totalDuration: videoStudioTotalDuration,
+    scenes: currentScenes.map(s => ({
+      index: s.index,
+      label: s.label,
+      type: s.type,
+      imageFileId: s.imageFileId || null,
+      imageFileName: s.imageFileName || null,
+      clipFileId: s.clipFileId || null,
+      clipFileName: s.clipFileName || null,
+      startSec: s.startSec,
+      endSec: s.endSec,
+      durationSec: s.durationSec,
+      transition: s.transition,
+      subtitleText: (s.subtitleText || "").trim()
+    }))
+  };
+
+  videoSaveDriveBtn.disabled = true;
+  const originalBtnText = videoSaveDriveBtn.innerHTML;
+  videoSaveDriveBtn.innerHTML = `⏳ 保存中...`;
+  videoSaveStatus.textContent = "Google Drive へ保存しています...";
+
+  try {
+    const res = await fetch(`/api/project/${projectId}/video-mapping`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    });
+    const result = await res.json();
+    if (!result.success) throw new Error(result.error || "保存に失敗しました");
+
+    // 保存完了
+    currentProjectDetail.videoMapping = payload;
+    videoSaveStatus.textContent = `✅ Google Drive に保存しました (${new Date().toLocaleTimeString()})`;
+    if (videoMappingStatusBadge) {
+      videoMappingStatusBadge.textContent = "✅ Drive保存済み";
+      videoMappingStatusBadge.className = "badge badge-success";
+    }
+    if (modalTabVideoBadge) {
+      modalTabVideoBadge.classList.remove("hidden");
+    }
+    alert("🎉 動画シーン割当設定を Google Drive に保存しました！\n（video_mapping.json が作成・更新されました）");
+  } catch (err) {
+    console.error("動画割当保存エラー:", err);
+    videoSaveStatus.textContent = `❌ 保存エラー: ${err.message}`;
+    alert(`保存に失敗しました: ${err.message}`);
+  } finally {
+    videoSaveDriveBtn.disabled = false;
+    videoSaveDriveBtn.innerHTML = originalBtnText;
+  }
+}
+
+/**
+ * 📝 SRT字幕ファイルをダウンロード
+ */
+function exportSrtFile() {
+  const isEnabled = videoSubtitleEnableChk ? videoSubtitleEnableChk.checked : true;
+  if (!isEnabled) {
+    if (!confirm("字幕オプションが現在OFFになっています。\n字幕を出力しますか？")) {
+      return;
+    }
+  }
+
+  let srtContent = "";
+  let counter = 1;
+
+  currentScenes.forEach((s) => {
+    const text = (s.subtitleText || "").trim();
+    if (text) {
+      const startTime = formatSrtTimestamp(s.startSec);
+      const endTime = formatSrtTimestamp(s.endSec);
+      srtContent += `${counter}\n${startTime} --> ${endTime}\n${text}\n\n`;
+      counter++;
+    }
+  });
+
+  if (!srtContent) {
+    alert("出力可能な字幕テキストがありません。各シーンの字幕欄に入力してください。");
+    return;
+  }
+
+  const projTitle = (modalTitle.textContent || "video").replace(/[\\/:*?"<>|]/g, "_").trim();
+  const filename = `${projTitle}_subtitles.srt`;
+  const blob = new Blob([srtContent], { type: "text/plain;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+/**
+ * 📋 FFmpeg動画結合コマンドをコピー
+ */
+function copyFfmpegCommand() {
+  const projTitle = (modalTitle.textContent || "output").replace(/[\\/:*?"<>|]/g, "_").trim();
+  let cmd = `# YouTube漫画動画 一括生成コマンド (FFmpeg)\n`;
+  cmd += `# ナレーション音声と9シーンの画像・動画を合成して一本化します\n\n`;
+
+  // concat用リストファイルの作成例
+  cmd += `cat << 'EOF' > list.txt\n`;
+  currentScenes.forEach(s => {
+    const srcFile = s.clipFileName || s.imageFileName || `scene_${s.index}.jpg`;
+    cmd += `file '${srcFile}'\n`;
+    cmd += `duration ${s.durationSec.toFixed(2)}\n`;
+  });
+  cmd += `EOF\n\n`;
+
+  cmd += `# 音声と結合して動画を出力\n`;
+  cmd += `ffmpeg -f concat -safe 0 -i list.txt -i narration_tts.mp3 -c:v libx264 -pix_fmt yuv420p -c:a aac -shortest "${projTitle}.mp4"\n`;
+
+  navigator.clipboard.writeText(cmd).then(() => {
+    alert("📋 FFmpeg動画結合コマンドをクリップボードにコピーしました！\nターミナルに貼り付けて実行できます。");
+  }).catch(err => {
+    prompt("以下のFFmpegコマンドをコピーしてください:", cmd);
+  });
+}
+
+/**
+ * 秒数を 00:00 形式に変換
+ */
+function formatSeconds(sec) {
+  if (isNaN(sec) || sec < 0) return "00:00";
+  const m = Math.floor(sec / 60);
+  const s = Math.floor(sec % 60);
+  return `${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}`;
+}
+
+/**
+ * 秒数を 00:00:00,000 (SRTタイムスタンプ形式) に変換
+ */
+function formatSrtTimestamp(sec) {
+  if (isNaN(sec) || sec < 0) sec = 0;
+  const hours = Math.floor(sec / 3600);
+  const minutes = Math.floor((sec % 3600) / 60);
+  const seconds = Math.floor(sec % 60);
+  const millis = Math.floor((sec % 1) * 1000);
+
+  return `${hours.toString().padStart(2, "0")}:${minutes.toString().padStart(2, "0")}:${seconds.toString().padStart(2, "0")},${millis.toString().padStart(3, "0")}`;
+}
+
