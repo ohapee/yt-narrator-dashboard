@@ -117,6 +117,54 @@ flowchart TD
 
 ---
 
+## 🎙️ ナレーション音声の一括バッチ生成（ローカル実行ツール）
+
+Cloudflare Workers の制限（実行時間・subrequest制限・毎時最大4件制限）にとらわれず、PCローカル環境から Google Drive 内の未生成案件を一括で高速音声化・自動アップロードできるバッチツールを提供しています。
+
+### 特徴
+- **高速エンジン**: ローカルの `edge-tts`（Microsoft Edge TTS）を直接呼び出し、1件あたり約3〜15秒で高品質な MP3 を生成。
+- **自動保存 ＆ カタログ同期**: 生成した MP3（`narration_tts.mp3`）を各 Google Drive フォルダに直接保存し、完了後に `_catalog.json` を自動同期してダッシュボードに即座に反映。
+- **安心設計**: いつでも中断・再開可能（生成済み案件は自動スキップ）。
+
+### 実行方法
+
+最も簡単な方法は、プロジェクトルートで以下のシェルスクリプトを実行することです：
+
+```bash
+cd /home/eiichi/src/yt-narrator-dashboard
+
+# 1. デフォルト設定（Nanami / 1.5倍速 / ピッチ-10Hz）で未生成の全件を一括生成
+./scripts/run_batch_narration.sh
+
+# 2. 件数を指定してテスト実行（例: 5件のみ生成）
+./scripts/run_batch_narration.sh --limit 5
+
+# 3. 実行前の対象確認（ドライラン・ファイル生成なし）
+./scripts/run_batch_narration.sh --dry-run
+```
+
+### パラメータのカスタマイズ（Python スクリプト直接実行）
+
+話者（ボイス）、速度、音の高さを自由に指定できます：
+
+```bash
+/home/eiichi/src/python-tools/.venv/bin/python \
+  scripts/batch_generate_narration.py \
+  --voice ja-JP-NanamiNeural \
+  --rate +50% \
+  --pitch -10Hz
+```
+
+| オプション | デフォルト値 | 説明 | 指定例 |
+| :--- | :--- | :--- | :--- |
+| `--voice` | `ja-JP-NanamiNeural` | 話者ボイス | `ja-JP-NanamiNeural`（女性）<br>`ja-JP-KeitaNeural`（男性） |
+| `--rate` | `+50%` | 発話速度 | `+0%` (等倍), `+30%` (1.3倍速), `+50%` (1.5倍速) |
+| `--pitch` | `-10Hz` | 音の高さ (ピッチ) | `+0Hz` (標準), `-10Hz` (落ち着いたトーン), `+10Hz` (明るいトーン) |
+| `--limit` | (なし・全件) | 処理件数の上限 | `--limit 10` (10件だけ生成) |
+| `--dry-run` | `false` | 事前確認モード | 実際の生成やアップロードを行わず対象一覧を表示 |
+
+---
+
 ## 🛠️ API エンドポイント一覧
 
 | メソッド | パス | 説明 | パラメータ例 |
