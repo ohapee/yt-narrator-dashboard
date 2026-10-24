@@ -93,6 +93,58 @@ async function getProjectsFolderId(env) {
 }
 
 /**
+ * フォルダ内ファイル一覧から成果物構成・ステータスを判定する共通パーサー
+ */
+function parseProjectFiles(folderId, folderName, createdTime, modifiedTime, files) {
+  const mangaImages = files.filter(f => /^manga_\d+\.(jpg|jpeg|png)$/i.test(f.name))
+    .sort((a, b) => a.name.localeCompare(b.name));
+  const titleImages = files.filter(f => /^(00_title|title).*\.(jpg|jpeg|png)$/i.test(f.name))
+    .sort((a, b) => a.name.localeCompare(b.name));
+  const hasNarration = files.some(f => f.name === "narration_tts.txt");
+  const hasYoutube = files.some(f => f.name === "youtube.json");
+  const audioFile = files.find(f => f.name === "narration_tts.mp3" || f.name === "narration.mp3");
+  const hasAudio = !!audioFile;
+  const mangaDoneFile = files.find(f => f.name === "manga_done.json");
+
+  let thumbnailId = "";
+  const finalTitle = titleImages.find(t => t.name.includes("final")) ||
+                     titleImages.find(t => t.name.includes("perfected")) ||
+                     titleImages.find(t => t.name === "00_title.jpg") ||
+                     titleImages[0];
+  if (finalTitle) {
+    thumbnailId = finalTitle.id;
+  } else if (mangaImages[0]) {
+    thumbnailId = mangaImages[0].id;
+  }
+
+  let status = "GENERATING";
+  if (mangaImages.length >= 8 && hasNarration && mangaDoneFile) {
+    status = "COMPLETED";
+  } else if (mangaImages.length > 0 || titleImages.length > 0) {
+    status = "PARTIAL";
+  }
+
+  return {
+    id: folderId,
+    name: folderName,
+    createdTime,
+    modifiedTime,
+    totalFiles: files.length,
+    mangaCount: mangaImages.length,
+    titleCount: titleImages.length,
+    hasNarration,
+    hasAudio,
+    audioFileId: audioFile?.id || "",
+    audioFileSize: audioFile?.size ? Number(audioFile.size) : 0,
+    hasYoutube,
+    hasMetadata: !!mangaDoneFile,
+    hasTitle: titleImages.length > 0,
+    thumbnailId,
+    status
+  };
+}
+
+/**
  * 単一プロジェクトフォルダの成果物構成をスキャンする
  */
 async function scanProjectFolder(folderId, folderName, createdTime, modifiedTime, env) {
@@ -104,53 +156,7 @@ async function scanProjectFolder(folderId, folderName, createdTime, modifiedTime
     );
     const data = await res.json();
     const files = data.files || [];
-
-    const mangaImages = files.filter(f => /^manga_\d+\.(jpg|jpeg|png)$/i.test(f.name))
-      .sort((a, b) => a.name.localeCompare(b.name));
-    const titleImages = files.filter(f => /^(00_title|title).*\.(jpg|jpeg|png)$/i.test(f.name))
-      .sort((a, b) => a.name.localeCompare(b.name));
-    const hasNarration = files.some(f => f.name === "narration_tts.txt");
-    const hasYoutube = files.some(f => f.name === "youtube.json");
-    const audioFile = files.find(f => f.name === "narration_tts.mp3" || f.name === "narration.mp3");
-    const hasAudio = !!audioFile;
-    const mangaDoneFile = files.find(f => f.name === "manga_done.json");
-
-    let thumbnailId = "";
-    const finalTitle = titleImages.find(t => t.name.includes("final")) ||
-                       titleImages.find(t => t.name.includes("perfected")) ||
-                       titleImages.find(t => t.name === "00_title.jpg") ||
-                       titleImages[0];
-    if (finalTitle) {
-      thumbnailId = finalTitle.id;
-    } else if (mangaImages[0]) {
-      thumbnailId = mangaImages[0].id;
-    }
-
-    let status = "GENERATING";
-    if (mangaImages.length >= 8 && hasNarration && mangaDoneFile) {
-      status = "COMPLETED";
-    } else if (mangaImages.length > 0 || titleImages.length > 0) {
-      status = "PARTIAL";
-    }
-
-    return {
-      id: folderId,
-      name: folderName,
-      createdTime,
-      modifiedTime,
-      totalFiles: files.length,
-      mangaCount: mangaImages.length,
-      titleCount: titleImages.length,
-      hasNarration,
-      hasAudio,
-      audioFileId: audioFile?.id || "",
-      audioFileSize: audioFile?.size ? Number(audioFile.size) : 0,
-      hasYoutube,
-      hasMetadata: !!mangaDoneFile,
-      hasTitle: titleImages.length > 0,
-      thumbnailId,
-      status
-    };
+    return parseProjectFiles(folderId, folderName, createdTime, modifiedTime, files);
   } catch (err) {
     return {
       id: folderId,
@@ -171,6 +177,67 @@ async function scanProjectFolder(folderId, folderName, createdTime, modifiedTime
       status: "UNKNOWN"
     };
   }
+}
+
+/**
+ * 複数プロジェクトフォルダの成果物構成を一括スキャンする
+ * （Google Drive API で 10 フォルダずつ親クエリをまとめ、subrequest 回数を激減させる）
+ */
+async function batchScanProjectFolders(folders, env) {
+  if (!folders || folders.length === 0) return [];
+
+  const CHUNK_SIZE = 10;
+  const results = [];
+
+  for (let i = 0; i < folders.length; i += CHUNK_SIZE) {
+    const chunk = folders.slice(i, i + CHUNK_SIZE);
+    try {
+      const parentsQuery = chunk.map(f => `'${f.id}' in parents`).join(" or ");
+      const q = `(${parentsQuery}) and trashed = false`;
+
+      let pageToken = "";
+      const allFiles = [];
+      do {
+        const url = `files?q=${encodeURIComponent(q)}&fields=nextPageToken,files(id,name,size,mimeType,parents)&pageSize=1000${pageToken ? "&pageToken=" + pageToken : ""}`;
+        const res = await driveFetch(url, env);
+        if (!res.ok) {
+          throw new Error(`バッチスキャンAPIエラー (${res.status}): ${await res.text()}`);
+        }
+        const data = await res.json();
+        allFiles.push(...(data.files || []));
+        pageToken = data.nextPageToken;
+      } while (pageToken);
+
+      // フォルダIDごとにファイルを分類
+      const filesByFolder = new Map();
+      for (const f of chunk) {
+        filesByFolder.set(f.id, []);
+      }
+      for (const file of allFiles) {
+        if (Array.isArray(file.parents)) {
+          for (const parentId of file.parents) {
+            if (filesByFolder.has(parentId)) {
+              filesByFolder.get(parentId).push(file);
+            }
+          }
+        }
+      }
+
+      for (const folder of chunk) {
+        const files = filesByFolder.get(folder.id) || [];
+        results.push(parseProjectFiles(folder.id, folder.name, folder.createdTime, folder.modifiedTime, files));
+      }
+    } catch (batchErr) {
+      console.warn(`[Batch Scan] バッチスキャン失敗、個別スキャンに切り替え: ${batchErr.message}`);
+      // フォールバック: 個別スキャン
+      for (const folder of chunk) {
+        const singleResult = await scanProjectFolder(folder.id, folder.name, folder.createdTime, folder.modifiedTime, env);
+        results.push(singleResult);
+      }
+    }
+  }
+
+  return results;
 }
 
 /**
@@ -346,7 +413,7 @@ async function syncCatalog(env) {
   const startTime = Date.now();
   const pFolderId = await getProjectsFolderId(env);
 
-  // 1. projects 直下のサブフォルダ一覧を取得
+  // 1. projects 直下のサブフォルダ一覧を取得 (1 fetch)
   let pageToken = "";
   let currentFolders = [];
   do {
@@ -370,37 +437,94 @@ async function syncCatalog(env) {
     }
   }
 
-  // 3. 差分の検出（新規フォルダ、または更新されたフォルダ）
+  // 3. 差分の検出
   const toScan = [];
-  const finalProjects = [];
+  const untouchedMap = new Map();
 
   for (const folder of currentFolders) {
     const existing = existingMap.get(folder.id);
-    if (!existing || existing.modifiedTime !== folder.modifiedTime) {
-      toScan.push(folder);
+    if (!existing) {
+      // 新規フォルダ: 最優先スキャン
+      toScan.push({ folder, isNew: true });
+    } else if (existing.modifiedTime !== folder.modifiedTime || existing.needsScan) {
+      // フォルダ自体の更新、または以前の未スキャンプレースホルダー
+      toScan.push({ folder, isNew: false });
     } else {
-      finalProjects.push(existing);
+      untouchedMap.set(folder.id, existing);
     }
   }
 
-  console.log(`[Catalog Sync] 総フォルダ: ${currentFolders.length} 件, 差分更新対象: ${toScan.length} 件`);
+  // Cloudflare Workers の制限（最大50 subrequests）を確実に遵守
+  // バッチスキャン（10件/fetch）なら30件でも3 fetchで完了可能
+  const MAX_SCAN = 30;
+  const scanBatch = toScan.slice(0, MAX_SCAN);
+  const overflow = toScan.slice(MAX_SCAN);
 
-  // 4. 差分対象フォルダをスキャン（4件ずつ並列処理）
-  if (toScan.length > 0) {
-    const BATCH_SIZE = 4;
-    for (let i = 0; i < toScan.length; i += BATCH_SIZE) {
-      const batch = toScan.slice(i, i + BATCH_SIZE);
-      const batchResults = await Promise.all(
-        batch.map(f => scanProjectFolder(f.id, f.name, f.createdTime, f.modifiedTime, env))
-      );
-      finalProjects.push(...batchResults);
+  console.log(`[Catalog Sync] 総フォルダ: ${currentFolders.length} 件, 差分対象: ${toScan.length} 件, 今回スキャン: ${scanBatch.length} 件`);
+
+  // 4. バッチスキャン実行 (10フォルダ単位でまとめて検索)
+  let scannedProjects = [];
+  if (scanBatch.length > 0) {
+    scannedProjects = await batchScanProjectFolders(scanBatch.map(s => s.folder), env);
+  }
+
+  const resultMap = new Map(scannedProjects.map(p => [p.id, p]));
+
+  // 今回スキャンしきれなかった分はプレースホルダーまたは既存データで補完し、総プロジェクト数を常に正確に保つ
+  for (const item of overflow) {
+    const folder = item.folder;
+    const existing = existingMap.get(folder.id);
+    if (existing) {
+      resultMap.set(folder.id, { ...existing, needsScan: true });
+    } else {
+      resultMap.set(folder.id, {
+        id: folder.id,
+        name: folder.name,
+        createdTime: folder.createdTime,
+        modifiedTime: folder.modifiedTime,
+        totalFiles: 0,
+        mangaCount: 0,
+        titleCount: 0,
+        hasNarration: false,
+        hasAudio: false,
+        audioFileId: "",
+        audioFileSize: 0,
+        hasYoutube: false,
+        hasMetadata: false,
+        hasTitle: false,
+        thumbnailId: "",
+        status: "GENERATING",
+        needsScan: true
+      });
     }
   }
+
+  // 5. finalProjects を全件構築（現在実在する全 currentFolders に基づく）
+  const finalProjects = currentFolders.map(f => {
+    return resultMap.get(f.id) || untouchedMap.get(f.id) || {
+      id: f.id,
+      name: f.name,
+      createdTime: f.createdTime,
+      modifiedTime: f.modifiedTime,
+      totalFiles: 0,
+      mangaCount: 0,
+      titleCount: 0,
+      hasNarration: false,
+      hasAudio: false,
+      audioFileId: "",
+      audioFileSize: 0,
+      hasYoutube: false,
+      hasMetadata: false,
+      hasTitle: false,
+      thumbnailId: "",
+      status: "GENERATING"
+    };
+  });
 
   // 名前降順にソート
   finalProjects.sort((a, b) => b.name.localeCompare(a.name));
 
-  // 5. 新しいカタログ構造を作成
+  // 6. 新しいカタログ構造を作成
   const completedProjects = finalProjects.filter(p => p.status === "COMPLETED").length;
   const audioProjects = finalProjects.filter(p => p.hasAudio).length;
   const partialProjects = finalProjects.filter(p => p.status !== "COMPLETED").length;
@@ -415,7 +539,7 @@ async function syncCatalog(env) {
     projects: finalProjects
   };
 
-  // 6. Google Drive へ保存
+  // 7. Google Drive へ保存 (1 fetch)
   const fileId = await saveCatalog(newCatalog, existingCatalog?._fileId, env);
   const elapsedSec = ((Date.now() - startTime) / 1000).toFixed(1);
 
@@ -423,7 +547,8 @@ async function syncCatalog(env) {
     success: true,
     fileId,
     totalProjects: finalProjects.length,
-    updatedFolders: toScan.length,
+    updatedFolders: scanBatch.length,
+    remainingToScan: overflow.length,
     elapsedSec,
     catalog: newCatalog
   };
@@ -531,7 +656,7 @@ async function getPipelineStatus(env, catalog) {
 }
 
 export default {
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
     const url = new URL(request.url);
     const pathname = url.pathname;
 
@@ -559,6 +684,12 @@ export default {
         if (!catalog) {
           const syncRes = await syncCatalog(env);
           catalog = syncRes.catalog;
+        } else {
+          // カタログ生成から30分以上経過している場合、バックグラウンドで差分同期を実行して鮮度を保つ
+          const genTime = catalog.generatedAt ? new Date(catalog.generatedAt).getTime() : 0;
+          if (Date.now() - genTime > 30 * 60 * 1000 && ctx?.waitUntil) {
+            ctx.waitUntil(syncCatalog(env).catch(e => console.error("[Auto Sync] 背景差分同期失敗:", e)));
+          }
         }
 
         // パイプライン3大工程の稼働ヘルスチェック
@@ -1145,8 +1276,10 @@ async function processHourlyNarration(env, maxFolders = 4) {
     const allSubFolders = foldersData.files || [];
 
     // 2. 未処理フォルダの選定 (narration_tts.txt があり、narration_tts.mp3 が無いもの)
+    // Cloudflare Workers の subrequest 制限を守るため、1回の実行での調査対象を最大15フォルダに安全制限
     const candidates = [];
-    for (const folder of allSubFolders) {
+    const searchTargetFolders = allSubFolders.slice(0, 15);
+    for (const folder of searchTargetFolders) {
       if (candidates.length >= maxFolders) break;
 
       const filesQuery = `'${folder.id}' in parents and trashed = false`;
