@@ -7,3 +7,5 @@ node_modules/
 .playwright/
 test-results/
 .artifacts/
+samples/
+__pycache__/
