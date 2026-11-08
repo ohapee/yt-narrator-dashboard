@@ -10,17 +10,28 @@
   <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&display=swap" rel="stylesheet">
 </head>
 <body>
-  <div class="app-container">
+  <section id="login-screen" class="login-screen" aria-label="管理者ログイン">
+    <form id="login-form" class="login-card">
+      <h1>yt-narrator 管理画面</h1>
+      <p>管理者パスワードを入力してください。</p>
+      <label for="login-password">パスワード</label>
+      <input id="login-password" type="password" required autocomplete="current-password" maxlength="200">
+      <button class="btn btn-primary" type="submit">ログイン</button>
+      <p id="login-error" role="alert"></p>
+    </form>
+  </section>
+  <div class="app-container hidden" id="app-shell">
     <!-- ヘッダー -->
     <header class="app-header">
       <div class="header-left">
         <div class="logo-icon">🎬</div>
         <div>
           <h1>yt-narrator 成果物 ＆ 進捗管理ダッシュボード</h1>
-          <p class="sub-title">YouTube自動要約・ナレーション・8コマ漫画生成パイプラインのリアルタイム可視化ツール</p>
+          <p class="sub-title">YouTube自動要約・ナレーション・漫画／図解生成パイプラインのリアルタイム可視化ツール</p>
         </div>
       </div>
       <div class="header-right" style="display: flex; gap: 8px;">
+        <button id="logout-btn" class="btn btn-secondary">ログアウト</button>
         <button id="sync-catalog-btn" class="btn btn-secondary" title="Google Driveの新規案件フォルダをスキャンしてカタログを最新化します">
           <span id="sync-catalog-icon">⚡</span> <span id="sync-catalog-text">カタログ同期</span>
         </button>
@@ -30,6 +41,13 @@
       </div>
     </header>
 
+    <p id="data-refresh-status" role="status"></p>
+    <section class="jobs-panel">
+      <h2>音声生成の実行履歴</h2>
+      <p id="jobs-summary" aria-live="polite">履歴を取得中...</p>
+      <p id="jobs-warning" role="alert"></p>
+      <div id="job-history"></div>
+    </section>
     <!-- 全体ステータス概要カード -->
     <section class="overview-section">
       <div class="stat-card">
@@ -38,9 +56,9 @@
         <div class="stat-desc">Google Drive /projects フォルダ内</div>
       </div>
       <div class="stat-card stat-success">
-        <div class="stat-label">8コマ漫画・原稿 完備</div>
+        <div class="stat-label">漫画・図解／原稿 完備</div>
         <div class="stat-value" id="stat-completed-projects">-</div>
-        <div class="stat-desc">全8コマ ＋ ナレーション原稿 ＋ 完了JSON</div>
+        <div class="stat-desc">1枚に約8コマ（従来8枚も対応）＋ 原稿 ＋ 完了JSON</div>
       </div>
       <div class="stat-card" style="border-left: 4px solid #10b981;">
         <div class="stat-label">🎙️ 音声登録済み (MP3)</div>
@@ -72,7 +90,7 @@
         <!-- 1. 8コマ漫画生成モニター -->
         <div class="stat-card" id="card-monitor-manga" style="border-top: 4px solid #2563eb;">
           <div style="display:flex; justify-content:space-between; align-items:flex-start;">
-            <div style="font-weight:700; font-size:15px; color:var(--text-main);">🖼️ 8コマ漫画生成</div>
+            <div style="font-weight:700; font-size:15px; color:var(--text-main);">🖼️ 漫画・インフォグラフィック生成</div>
             <span id="badge-monitor-manga" class="badge" style="font-size:12px;">判定中...</span>
           </div>
           <div style="margin-top:10px;">
@@ -89,7 +107,7 @@
         <!-- 2. タイトル画像生成モニター -->
         <div class="stat-card" id="card-monitor-title" style="border-top: 4px solid #7c3aed;">
           <div style="display:flex; justify-content:space-between; align-items:flex-start;">
-            <div style="font-weight:700; font-size:15px; color:var(--text-main);">🎨 タイトル画像作成</div>
+            <div style="font-weight:700; font-size:15px; color:var(--text-main);">🎨 タイトル画像（漫画・図解を共用）</div>
             <span id="badge-monitor-title" class="badge" style="font-size:12px;">判定中...</span>
           </div>
           <div style="margin-top:10px;">
@@ -183,7 +201,7 @@
         <div class="filter-controls">
           <select id="status-filter">
             <option value="all">すべてのステータス</option>
-            <option value="COMPLETED">✅ 完備（8コマ＋原稿）</option>
+            <option value="COMPLETED">✅ 完備（漫画・図解＋原稿）</option>
             <option value="AUDIO_READY">🎙️ 音声あり (MP3生成済み)</option>
             <option value="AUDIO_PENDING">⏳ 音声未生成 (MP3なし)</option>
             <option value="PARTIAL">⏳ 生成中 / 一部完了</option>
@@ -240,7 +258,7 @@
         <div class="modal-body">
           <!-- モーダル内タブ -->
           <div class="modal-tabs">
-            <button class="modal-tab-btn active" data-modaltab="manga-tab">🖼️ 8コマ漫画ビューア (<span id="modal-manga-count">0</span>)</button>
+            <button class="modal-tab-btn active" data-modaltab="manga-tab">🖼️ 漫画・図解ビューア (<span id="modal-manga-count">0</span>)</button>
             <button class="modal-tab-btn" data-modaltab="title-tab">🎨 表紙・タイトルカード (<span id="modal-title-count">0</span>)</button>
             <button class="modal-tab-btn" data-modaltab="narration-tab">🎙️ ナレーション原稿 ＆ 音声 <span id="modal-tab-audio-badge" class="badge hidden" style="font-size:10px; padding:1px 6px; margin-left:4px;"></span></button>
             <button class="modal-tab-btn" data-modaltab="video-tab">🎬 動画シーン割当設定 <span id="modal-tab-video-badge" class="badge badge-success hidden" style="font-size:10px; padding:1px 6px; margin-left:4px;">設定済</span></button>
@@ -450,6 +468,7 @@
 
               <div class="meta-section">
                 <h3>📖 あらすじ・シノプシス</h3>
+                <p id="visual-generator-info" class="sub-title"></p>
                 <div id="meta-synopsis" class="meta-synopsis-box">-</div>
               </div>
               <div class="meta-section">
@@ -471,13 +490,13 @@
                       <span id="video-mapping-status-badge" class="badge badge-subtle">未保存</span>
                     </h3>
                     <p style="font-size: 12px; color: var(--text-muted); margin-top: 3px;">
-                      タイトル画像 ＋ 8コマ漫画（全9シーン）の秒数配分、動画クリップ差替え、カメラ演出、字幕を設定します。
+                      1枚形式は画像全体を表示します。従来形式は表紙＋8枚の9シーンで、秒数配分・演出・字幕を設定できます。
                     </p>
                   </div>
                   <!-- 自動計算・均等割りボタン -->
                   <div style="display: flex; gap: 8px; flex-wrap: wrap;">
-                    <button id="video-auto-equalize-btn" class="btn btn-primary btn-sm" style="background:#2563eb; font-weight:600;" title="音声の総再生時間を全9シーンで均等に自動割り当てします">
-                      ⏱️ 秒数の自動均等割り (9分割)
+                    <button id="video-auto-equalize-btn" class="btn btn-primary btn-sm" style="background:#2563eb; font-weight:600;" title="音声の総再生時間を現在のシーン数で均等に割り当てます">
+                      ⏱️ 秒数の自動均等割り
                     </button>
                     <button id="video-auto-script-btn" class="btn btn-secondary btn-sm" style="font-weight:600;" title="ナレーション原稿の文字数の比率に応じて各シーンの秒数を自動配分します">
                       ⚡ 文字数比率で自動配分
@@ -530,8 +549,9 @@
                   <button id="video-export-srt-btn" class="btn btn-secondary btn-sm" title="現在のタイムラインと字幕テキストからSRT字幕ファイルを生成・ダウンロードします">
                     📝 SRT字幕ダウンロード
                   </button>
+                  <button id="video-export-bundle-btn" class="btn btn-primary btn-sm">📦 動画書き出しセット（ZIP）</button>
                   <button id="video-copy-ffmpeg-btn" class="btn btn-secondary btn-sm" title="静止画＋動画クリップ＋音声を結合して1本化するFFmpegコマンドをコピーします">
-                    📋 FFmpeg動画結合コマンド
+                    📋 動画書き出しコマンド
                   </button>
                 </div>
               </div>
@@ -552,6 +572,6 @@
     </div>
   </div>
 
-  <script src="app.js"></script>
+  <script type="module" src="app.js"></script>
 </body>
 </html>

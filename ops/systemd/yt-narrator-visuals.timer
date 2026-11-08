@@ -1,0 +1,10 @@
+[Unit]
+Description=Generate one yt-narrator comic page every hour
+
+[Timer]
+OnCalendar=*-*-* *:15:00
+Persistent=true
+Unit=yt-narrator-visuals.service
+
+[Install]
+WantedBy=timers.target

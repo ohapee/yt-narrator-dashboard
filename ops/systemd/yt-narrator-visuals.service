@@ -1,0 +1,12 @@
+[Unit]
+Description=Generate one yt-narrator comic page using Codex CLI
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/eiichi/src/yt-narrator-dashboard
+Environment=PATH=/home/eiichi/.local/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=/usr/bin/node /home/eiichi/src/yt-narrator-dashboard/scripts/generate-visuals.mjs --limit 1
+TimeoutStartSec=30min
+UMask=0077

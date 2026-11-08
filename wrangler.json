@@ -10,9 +10,28 @@
     "directory": "./public",
     "binding": "ASSETS"
   },
+  "observability": {
+    "enabled": true
+  },
   "triggers": {
     "crons": [
       "0 * * * *"
     ]
-  }
+  },
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "JOBS",
+        "class_name": "NarrationCoordinator"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1-jobs",
+      "new_sqlite_classes": [
+        "NarrationCoordinator"
+      ]
+    }
+  ]
 }

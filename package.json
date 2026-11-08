@@ -4,11 +4,15 @@
   "description": "YouTube ナレーション・8コマ漫画自動生成プロジェクトの進捗・成果物管理ダッシュボード",
   "type": "module",
   "scripts": {
+    "test": "node --test tests/*.test.js",
     "dev": "wrangler dev",
     "start": "wrangler dev",
-    "deploy": "wrangler deploy src/index.js --assets=./public"
+    "deploy": "wrangler deploy src/index.js --assets=./public",
+    "test:browser": "playwright test",
+    "generate:visuals": "node scripts/generate-visuals.mjs"
   },
   "devDependencies": {
+    "@playwright/test": "^1.65.0",
     "wrangler": "^4.149.0"
   }
 }

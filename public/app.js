@@ -1,3 +1,7 @@
+import { apiFetch, initializeSession } from "./session.js";
+import { refreshJobs } from "./jobs-ui.js";
+import { buildVideoExport, storedZip } from "./video-export.js";
+
 /**
  * YouTube ナレーター ＆ 漫画生成 管理ダッシュボード
  * クライアント側制御スクリプト
@@ -157,10 +161,29 @@ let isAudioSeeking = false;
 // ----------------------------------------------------
 document.addEventListener("DOMContentLoaded", () => {
   initEvents();
-  loadData();
+  initializeSession(loadData);
+  let lastRun = null;
+  setInterval(() => {
+    if (!document.hidden && document.getElementById("login-screen").classList.contains("hidden")) refreshJobs().then(status => {
+      if (lastRun && status.lastRun !== lastRun) loadData();
+      lastRun = status.lastRun;
+    }).catch(() => {});
+  }, 15000);
 });
 
 function initEvents() {
+  projectsGrid.addEventListener("click", event => {
+    const card = event.target.closest("[data-project-id]");
+    if (card) openProjectDetail(card.dataset.projectId, card.dataset.projectName);
+  });
+  projectsGrid.addEventListener("keydown", event => { if (["Enter", " "].includes(event.key) && event.target.matches("[data-project-id]")) { event.preventDefault(); event.target.click(); } });
+  document.addEventListener("click", event => {
+    const filter = event.target.closest("[data-filter-project]");
+    if (filter) filterByProjectName(filter.dataset.filterProject);
+    const thumb = event.target.closest("[data-manga-page]");
+    if (thumb) showMangaPage(Number(thumb.dataset.mangaPage));
+  });
+  document.getElementById("video-export-bundle-btn").addEventListener("click", downloadVideoBundle);
   // タブ切り替え
   document.querySelectorAll(".nav-tabs .tab-btn").forEach(btn => {
     btn.addEventListener("click", () => {
@@ -271,12 +294,11 @@ function initEvents() {
       triggerCronText.textContent = "音声生成＆アップロード中...";
 
       try {
-        const res = await fetch("/api/cron/process-narration", { method: "POST" });
+        const res = await apiFetch("/api/cron/process-narration", { method: "POST" });
         const data = await res.json();
 
         if (data.success) {
-          const successList = (data.results || []).filter(r => r.status === "success").map(r => `・${r.folderName}`).join("\n");
-          alert(`🎉 ナレーション自動生成が完了しました！\n\n処理完了: ${data.successCount} 件 (所要時間: ${data.totalElapsedSec}秒)\n\n${successList || "（未処理フォルダはありませんでした）"}`);
+          alert(data.queuedCount ? `${data.queuedCount}件を登録しました。画面を閉じても生成は続行します。実行履歴で進捗を確認できます。` : "新しく登録する音声待ち案件はありません。");
           loadData();
         } else {
           alert(`エラー: ${data.error || "バッチ実行に失敗しました"}`);
@@ -303,7 +325,7 @@ function initEvents() {
       syncCatalogText.textContent = "差分同期中...";
 
       try {
-        const res = await fetch("/api/sync-catalog", { method: "POST" });
+        const res = await apiFetch("/api/sync-catalog", { method: "POST" });
         const data = await res.json();
         if (data.success) {
           alert(`⚡ カタログ同期が完了しました！\n\n・総フォルダ数: ${data.totalProjects} 件\n・更新フォルダ数: ${data.updatedFolders} 件\n・所要時間: ${data.elapsedSec} 秒`);
@@ -417,41 +439,22 @@ function initEvents() {
 // データ読み込み
 // ----------------------------------------------------
 async function loadData() {
-  try {
-    // 概要の取得
-    const overviewRes = await fetch("/api/overview");
-    const overviewData = await overviewRes.json();
-    if (overviewData.success) {
-      updateOverview(overviewData);
-    }
-
-    // プロジェクト一覧の取得（_catalog.jsonから全件瞬時取得）
-    const projRes = await fetch("/api/projects");
-    const projData = await projRes.json();
-    if (projData.success) {
-      allProjects = projData.projects || [];
-      tabProjectCount.textContent = allProjects.length;
-      updateStats();
-      applyFilters();
-    }
-
-    // キュー一覧の取得
-    const queueRes = await fetch("/api/queues");
-    const queueData = await queueRes.json();
-    if (queueData.success) {
-      allQueues = queueData.queues || [];
-      tabQueueCount.textContent = allQueues.length;
-      renderQueues(allQueues);
-    }
-  } catch (err) {
-    console.error("データ読み込みエラー:", err);
-    projectsGrid.innerHTML = `
-      <div class="empty-state">
-        <p>⚠️ データの取得に失敗しました: ${err.message}</p>
-        <button class="btn btn-secondary btn-sm" onclick="loadData()" style="margin-top:12px;">再試行</button>
-      </div>
-    `;
-  }
+  const tasks = [
+    ["概要", "/api/overview", updateOverview],
+    ["案件", "/api/projects", data => { allProjects = data.projects || []; tabProjectCount.textContent = allProjects.length; updateStats(); applyFilters(); }],
+    ["キュー", "/api/queues", data => { allQueues = data.queues || []; tabQueueCount.textContent = allQueues.length; renderQueues(allQueues); }]
+  ];
+  const results = await Promise.allSettled(tasks.map(async ([name, url, render]) => {
+    const response = await apiFetch(url);
+    const data = await response.json();
+    if (!response.ok || !data.success) throw new Error(name);
+    render(data);
+  }));
+  const failures = results.map((result, index) => result.status === "rejected" ? tasks[index][0] : "").filter(Boolean);
+  const status = document.getElementById("data-refresh-status");
+  status.dataset.error = String(failures.length > 0);
+  status.textContent = failures.length ? `${failures.join("・")}の取得に失敗しました。取得済みの情報は保持しています。「最新状態に更新」で再試行できます。` : `最終表示更新: ${new Date().toLocaleTimeString("ja-JP")}`;
+  await refreshJobs().catch(error => { document.getElementById("jobs-warning").textContent = error.message; });
 }
 
 function updateOverview(data) {
@@ -523,7 +526,7 @@ function updatePipelineMonitor(status) {
     if (diffEl) diffEl.textContent = a.timeAgo ? `(${a.timeAgo})` : "";
     if (badgeEl) {
       badgeEl.textContent = a.label;
-      badgeEl.className = `badge ${a.status === "ACTIVE" ? "badge-success" : a.status === "WARN" ? "badge-warning" : "badge-danger"}`;
+      badgeEl.className = `badge ${["ACTIVE", "IDLE"].includes(a.status) ? "badge-success" : a.status === "WARN" ? "badge-warning" : "badge-danger"}`;
     }
     if (projEl) projEl.textContent = formatProjectTitle(a.projectName);
     if (pendEl) pendEl.textContent = `${a.pendingCount} 件`;
@@ -569,7 +572,7 @@ function updatePipelineMonitor(status) {
             <div style="display:flex; align-items:center; gap:8px;">
               <span class="badge badge-warning" style="font-size:11px; font-weight:600;">漫画: ${item.mangaCount}/8コマ</span>
               <span class="badge ${item.hasTitle ? 'badge-success' : 'badge-subtle'}" style="font-size:11px;">${item.hasTitle ? '表紙あり' : '表紙なし'}</span>
-              <button class="btn btn-secondary btn-sm" onclick="filterByProjectName('${escapeHtml(item.name)}')" style="font-size:11px; padding:3px 10px; font-weight:600;">確認</button>
+              <button class="btn btn-secondary btn-sm" data-filter-project="${escapeHtml(item.name)}" style="font-size:11px; padding:3px 10px; font-weight:600;">確認</button>
             </div>
           </li>
         `;
@@ -667,7 +670,7 @@ function renderProjects(projects) {
       : `<div class="thumb-placeholder">🖼️</div>`;
 
     const statusBadge = p.status === "COMPLETED"
-      ? `<span class="badge badge-success">✅ 完備 (8コマ)</span>`
+      ? `<span class="badge badge-success">✅ 完備 (${p.hasVisual ? '1枚・約8コマ' : '従来8枚'})</span>`
       : `<span class="badge badge-warning">⏳ 生成中 (${p.mangaCount}/8コマ)</span>`;
 
     const audioBadge = p.hasAudio
@@ -682,15 +685,15 @@ function renderProjects(projects) {
       ? `<span class="badge badge-subtle" style="color:var(--primary); font-weight:600;">🎨 表紙あり</span>`
       : ``;
 
-    const displayTitle = formatProjectTitle(p.name);
+    const displayTitle = escapeHtml(formatProjectTitle(p.name));
 
     return `
-      <div class="project-card" onclick="openProjectDetail('${p.id}', '${escapeHtml(p.name)}')">
+      <div class="project-card" data-project-id="${escapeHtml(p.id)}" data-project-name="${escapeHtml(p.name)}" tabindex="0" role="button">
         <div class="project-thumb-box">
           ${thumbHtml}
           <div class="thumb-badges">
             ${p.titleCount > 0 ? `<span class="thumb-manga-badge" style="background:rgba(26,115,232,0.85);">🎨 表紙 ${p.titleCount}</span>` : ''}
-            <span class="thumb-manga-badge">漫画 ${p.mangaCount}コマ</span>
+            <span class="thumb-manga-badge">${p.hasVisual ? '漫画・図解 1枚' : `従来形式 ${p.mangaCount}/8枚`}</span>
             ${p.hasAudio ? `<span class="thumb-manga-badge" style="background:rgba(16,185,129,0.9); font-weight:700;">🎙️ MP3</span>` : ''}
           </div>
         </div>
@@ -758,7 +761,7 @@ async function openProjectDetail(projectId, projectName) {
   metaFileList.innerHTML = "";
 
   try {
-    const res = await fetch(`/api/project/${projectId}`);
+    const res = await apiFetch(`/api/project/${projectId}`);
     const data = await res.json();
     if (!data.success) throw new Error(data.error);
 
@@ -782,9 +785,9 @@ function renderProjectDetail(data, projectName) {
   modalMangaCount.textContent = images.length;
   modalTitleCount.textContent = titles.length;
 
-  if (images.length >= 8 && data.narrationText) {
+  if ((data.visualMode === "single_page" || images.length >= 8) && data.narrationText) {
     modalStatusBadge.className = "badge badge-success";
-    modalStatusBadge.textContent = "✅ 生成完備";
+    modalStatusBadge.textContent = data.visualMode === "single_page" ? "✅ 1枚形式・タイトル共用" : "✅ 生成完備";
   } else {
     modalStatusBadge.className = "badge badge-warning";
     modalStatusBadge.textContent = `⏳ 生成中 (${images.length}/8コマ)`;
@@ -853,6 +856,13 @@ function renderProjectDetail(data, projectName) {
   // 4. メタデータ＆ファイル一覧のセットアップ
   const synopsis = data.metadata?.synopsis || data.titleMetadata?.synopsis || "あらすじ情報なし";
   metaSynopsis.textContent = synopsis;
+  const generatorInfo = document.getElementById("visual-generator-info");
+  if (generatorInfo) {
+    const m = data.metadata;
+    generatorInfo.textContent = m?.mode === "single_page"
+      ? `生成: ${m.provider === "codex" ? "Codex CLI" : "Antigravity CLI"} ／ 推論モデル: ${m.reasoningModel || "CLI設定に従う"} ／ 画像モデル: ${m.imageModel || "CLIから非公開"}${m.width && m.height ? ` ／ ${m.width}×${m.height}px` : ""} ／ タイトル画像は同じ画像を共用`
+      : "従来形式（生成サービス・モデルの記録なし）";
+  }
 
   metaFileList.innerHTML = data.files.map(f => {
     const sizeStr = f.size ? `${(parseInt(f.size) / (1024*1024)).toFixed(2)} MB` : "-";
@@ -881,7 +891,7 @@ function setupMangaViewer(images) {
   }
 
   mangaThumbnails.innerHTML = images.map((img, idx) => `
-    <div class="manga-thumb-item ${idx === 0 ? 'active' : ''}" onclick="selectMangaPage(${idx})">
+    <div class="manga-thumb-item ${idx === 0 ? 'active' : ''}" data-manga-page="${idx}">
       <img src="${img.url}" alt="${img.name}" loading="lazy">
     </div>
   `).join("");
@@ -1127,7 +1137,7 @@ async function generateAiTts() {
   }
 
   try {
-    const res = await fetch("/api/tts", {
+    const res = await apiFetch("/api/tts", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ engine, text: textToSynthesize, voice, speed })
@@ -1351,9 +1361,9 @@ function setupVideoMapping(data, projectName) {
   }
 
   // 2. 既存の Drive 割当データ（video_mapping.json）の復元または新規9シーン作成
-  if (data.videoMapping && Array.isArray(data.videoMapping.scenes) && data.videoMapping.scenes.length === 9) {
+  if (data.videoMapping && Array.isArray(data.videoMapping.scenes) && data.videoMapping.scenes.length === (data.visualMode === "single_page" ? 1 : 9)) {
     // 既存保存データを復元
-    currentScenes = JSON.parse(JSON.stringify(data.videoMapping.scenes));
+    currentScenes = JSON.parse(JSON.stringify(data.videoMapping.scenes)).map(scene => ({...scene, imageUrl: scene.imageFileId ? `/api/image/${scene.imageFileId}` : ""}));
     if (data.videoMapping.totalDuration) {
       videoStudioTotalDuration = parseFloat(data.videoMapping.totalDuration) || videoStudioTotalDuration;
     }
@@ -1367,6 +1377,12 @@ function setupVideoMapping(data, projectName) {
     if (modalTabVideoBadge) {
       modalTabVideoBadge.classList.remove("hidden");
     }
+  } else if (data.visualMode === "single_page" && data.mangaImages?.[0]) {
+    const image = data.mangaImages[0];
+    currentScenes = [{index: 0, type: "manga", label: "漫画・インフォグラフィック（タイトル共用）", imageFileId: image.id, imageFileName: image.name, imageUrl: image.url, clipFileId: "", clipFileName: "", startSec: 0, endSec: 0, durationSec: 0, transition: "none", subtitleText: data.narrationText || ""}];
+    applyEqualSplit(false);
+    if (videoMappingStatusBadge) { videoMappingStatusBadge.textContent = "未保存（1枚形式）"; videoMappingStatusBadge.className = "badge badge-subtle"; }
+    modalTabVideoBadge?.classList.add("hidden");
   } else {
     // 新規作成：全9シーン（表紙1枚 ＋ 8コマ漫画8枚）
     const fullText = (data.narrationText || "").trim();
@@ -1454,22 +1470,20 @@ function splitIntoChunks(sentences, n) {
  * ⏱️ 秒数の自動均等割り (9分割)
  */
 function applyEqualSplit(shouldRender = true) {
-  const total = Math.max(9.0, videoStudioTotalDuration);
-  const unitSec = +(total / 9).toFixed(1);
-  let currentStart = 0.0;
+  if (!currentScenes.length) return;
+  const totalTicks = Math.round(Math.max(currentScenes.length * 0.1, videoStudioTotalDuration) * 10);
+  const unitTicks = Math.floor(totalTicks / currentScenes.length);
+  const remainder = totalTicks % currentScenes.length;
+  let currentTick = 0;
 
   currentScenes.forEach((scene, idx) => {
-    const isLast = (idx === currentScenes.length - 1);
-    scene.startSec = +currentStart.toFixed(1);
-    if (isLast) {
-      scene.endSec = +total.toFixed(1);
-      scene.durationSec = +(scene.endSec - scene.startSec).toFixed(1);
-    } else {
-      scene.durationSec = unitSec;
-      scene.endSec = +(currentStart + unitSec).toFixed(1);
-      currentStart += unitSec;
-    }
+    scene.startSec = currentTick / 10;
+    const ticks = unitTicks + (idx < remainder ? 1 : 0);
+    currentTick += ticks;
+    scene.endSec = currentTick / 10;
+    scene.durationSec = ticks / 10;
   });
+  videoStudioTotalDuration = totalTicks / 10;
 
   markVideoMappingDirty();
   updateTotalDurationDisplay();
@@ -1482,33 +1496,48 @@ function applyEqualSplit(shouldRender = true) {
  * ⚡ ナレーション原稿の文字数比率で秒数を自動配分
  */
 function applyScriptRatioSplit() {
-  const total = Math.max(9.0, videoStudioTotalDuration);
+  if (currentScenes.length === 0) return;
+  // 0.1秒単位の整数で配分し、丸め誤差も含めて合計尺を一致させる。
+  const totalTicks = Math.round(Math.max(currentScenes.length * 0.1, videoStudioTotalDuration) * 10);
+  const minTicks = Math.min(20, Math.floor(totalTicks / currentScenes.length));
   // 各シーンの文字数（最低3文字とみなす）
   const charCounts = currentScenes.map(s => Math.max(3, (s.subtitleText || "").replace(/\s/g, "").length));
-  const sumChars = charCounts.reduce((a, b) => a + b, 0);
+  const durations = Array(currentScenes.length).fill(0);
+  let remaining = totalTicks;
+  let pending = charCounts.map((_, index) => index);
 
-  let currentStart = 0.0;
-  currentScenes.forEach((scene, idx) => {
-    const isLast = (idx === currentScenes.length - 1);
-    scene.startSec = +currentStart.toFixed(1);
-    if (isLast) {
-      scene.endSec = +total.toFixed(1);
-      scene.durationSec = +(scene.endSec - scene.startSec).toFixed(1);
-    } else {
-      // 比率で秒数を算出（最低2.0秒保証）
-      const ratio = charCounts[idx] / sumChars;
-      const rawSec = Math.max(2.0, +(total * ratio).toFixed(1));
-      scene.durationSec = rawSec;
-      scene.endSec = +(currentStart + rawSec).toFixed(1);
-      currentStart += rawSec;
+  // 最低尺に満たないシーンを先に確定し、残りを文字数比率で配分する。
+  // 全体が短い場合は、全シーンが収まるよう最低尺も短くする。
+  while (pending.length > 0) {
+    const sumChars = pending.reduce((sum, index) => sum + charCounts[index], 0);
+    const shortScenes = pending.filter(index => remaining * charCounts[index] / sumChars < minTicks);
+    if (shortScenes.length === 0) {
+      const shares = pending.map(index => {
+        const exact = remaining * charCounts[index] / sumChars;
+        durations[index] = Math.floor(exact);
+        return { index, fraction: exact - durations[index] };
+      });
+      const leftover = remaining - pending.reduce((sum, index) => sum + durations[index], 0);
+      shares.sort((a, b) => b.fraction - a.fraction || a.index - b.index);
+      for (let i = 0; i < leftover; i++) durations[shares[i].index]++;
+      break;
     }
-  });
-
-  // 最終シーンが超過または不足した場合は全体を調整
-  const lastEnd = currentScenes[currentScenes.length - 1].endSec;
-  if (Math.abs(lastEnd - total) > 0.5) {
-    videoStudioTotalDuration = +lastEnd.toFixed(1);
+    for (const index of shortScenes) {
+      durations[index] = minTicks;
+      remaining -= minTicks;
+    }
+    const fixed = new Set(shortScenes);
+    pending = pending.filter(index => !fixed.has(index));
   }
+
+  let startTicks = 0;
+  currentScenes.forEach((scene, index) => {
+    scene.startSec = startTicks / 10;
+    scene.durationSec = durations[index] / 10;
+    startTicks += durations[index];
+    scene.endSec = startTicks / 10;
+  });
+  videoStudioTotalDuration = totalTicks / 10;
 
   markVideoMappingDirty();
   updateTotalDurationDisplay();
@@ -1790,7 +1819,7 @@ function updateSubtitleVisibility() {
  */
 async function saveVideoMappingToDrive() {
   if (!currentProjectDetail) return;
-  const projectId = currentProjectDetail.id;
+  const projectId = currentProjectDetail.projectId;
 
   const payload = {
     projectId,
@@ -1820,7 +1849,7 @@ async function saveVideoMappingToDrive() {
   videoSaveStatus.textContent = "Google Drive へ保存しています...";
 
   try {
-    const res = await fetch(`/api/project/${projectId}/video-mapping`, {
+    const res = await apiFetch(`/api/project/${projectId}/video-mapping`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload)
@@ -1895,28 +1924,35 @@ function exportSrtFile() {
 /**
  * 📋 FFmpeg動画結合コマンドをコピー
  */
-function copyFfmpegCommand() {
-  const projTitle = (modalTitle.textContent || "output").replace(/[\\/:*?"<>|]/g, "_").trim();
-  let cmd = `# YouTube漫画動画 一括生成コマンド (FFmpeg)\n`;
-  cmd += `# ナレーション音声と9シーンの画像・動画を合成して一本化します\n\n`;
+async function copyFfmpegCommand() {
+  try {
+    const result = buildVideoExport(currentScenes, videoSubtitleEnableChk.checked, currentProjectDetail?.audioFile);
+    await navigator.clipboard.writeText(result.script);
+    alert("動画書き出しコマンドをコピーしました。素材と字幕をまとめて取得するには「動画書き出しセット」を使ってください。");
+  } catch (error) { alert(error.message); }
+}
 
-  // concat用リストファイルの作成例
-  cmd += `cat << 'EOF' > list.txt\n`;
-  currentScenes.forEach(s => {
-    const srcFile = s.clipFileName || s.imageFileName || `scene_${s.index}.jpg`;
-    cmd += `file '${srcFile}'\n`;
-    cmd += `duration ${s.durationSec.toFixed(2)}\n`;
-  });
-  cmd += `EOF\n\n`;
-
-  cmd += `# 音声と結合して動画を出力\n`;
-  cmd += `ffmpeg -f concat -safe 0 -i list.txt -i narration_tts.mp3 -c:v libx264 -pix_fmt yuv420p -c:a aac -shortest "${projTitle}.mp4"\n`;
-
-  navigator.clipboard.writeText(cmd).then(() => {
-    alert("📋 FFmpeg動画結合コマンドをクリップボードにコピーしました！\nターミナルに貼り付けて実行できます。");
-  }).catch(err => {
-    prompt("以下のFFmpegコマンドをコピーしてください:", cmd);
-  });
+async function downloadVideoBundle() {
+  const button = document.getElementById("video-export-bundle-btn");
+  button.disabled = true;
+  try {
+    const result = buildVideoExport(currentScenes, videoSubtitleEnableChk.checked, currentProjectDetail?.audioFile);
+    const entries = [{name: "render.sh", data: result.script}, {name: "README.txt", data: "FFmpeg（libx264/libass対応）と日本語フォントをインストールし、展開したフォルダで bash render.sh を実行してください。出力は output.mp4 です。render_*.mp4 と scenes.txt は中間ファイルとして残します。\n"}];
+    if (result.subtitles) entries.push({name: "subtitles.srt", data: result.subtitles});
+    let total = 0;
+    for (const asset of result.assets) {
+      const response = await apiFetch(asset.url);
+      if (!response.ok) throw new Error(`${asset.name}の取得に失敗しました`);
+      const bytes = new Uint8Array(await response.arrayBuffer());
+      total += bytes.length;
+      if (total > 300 * 1024 * 1024) throw new Error("書き出し素材が300MBを超えました。動画クリップを短くしてください。");
+      entries.push({name: asset.name, data: bytes});
+    }
+    const url = URL.createObjectURL(storedZip(entries));
+    const link = document.createElement("a"); link.href = url; link.download = "video-export.zip"; link.click();
+    setTimeout(() => URL.revokeObjectURL(url), 10000);
+  } catch (error) { alert(error.message); }
+  finally { button.disabled = false; }
 }
 
 /**
