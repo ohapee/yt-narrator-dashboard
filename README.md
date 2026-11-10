@@ -14,6 +14,23 @@ Google Driveに保存されたYouTube動画由来の原稿・音声・画像を�
 
 管理画面へのアクセスには管理者パスワードが必要です。Driveの管理対象は環境変数で設定します。
 
+## 公開動画ライブラリ（2026-11-10追加）
+
+新方式の画像と完成音声をFFmpegで **1080×1920・H.264/AACのMP4** にし、Cloudflare R2へ保存して `/watch/` から一覧・連続再生する機能を追加しました。検索、前後移動、0.5〜2倍の再生速度、繰り返し、個別共有URL、管理者による非公開化に対応します。管理画面とDriveの原稿は公開しません。
+
+**現在のアカウントはR2が未有効のため、本番の動画公開は有効化待ちです。自動処理は起動済みです。** 15分ごとにR2を確認し、Cloudflare Dashboardでの契約有効化を検知すると、バケット作成・Workerデプロイ・動画化・アップロード・一覧公開を自動実行します。以後は1回最大2件を順次公開し、非公開にした案件は自動再公開しません。
+
+```bash
+npm run publish:videos -- --project DRIVE_FOLDER_ID --render-only --limit 1
+npm run publish:videos -- --dry-run
+# 有効化待ち／自動セットアップ／順次公開のサイクルを手動実行
+npm run automate:videos -- --limit 2
+# 本番R2の設定後
+npm run publish:videos -- --limit 2
+```
+
+実行・保存・公開／非公開・定期化の詳細は [公開動画ライブラリの運用手順](docs/PUBLIC_VIDEO_LIBRARY.md) を参照してください。R2のバインディングは通常の `wrangler.json` に統合しており、以後の更新は `npm run deploy` で維持されます。
+
 ## 最近の変更
 
 ### 2026-11-09：YouTube Shorts用サイズへ変更
@@ -302,7 +319,7 @@ npm ci
 if [ ! -e .dev.vars ]; then cp .env.example .dev.vars; fi
 # .dev.varsを編集し、必要な値を設定する
 chmod 600 .dev.vars
-npm run dev -- --ip 127.0.0.1 --port 8787
+npm run dev
 ```
 
 既に `.dev.vars` がある環境では上書きせず、そのファイルを編集してください。http://localhost:8787 を開き、`ADMIN_TOKEN` の値でログインします。CLIランナーを使う場合は同じ値の `.admin-password` を別途用意するか、プロセスへ `ADMIN_TOKEN` を設定します。

@@ -1,0 +1,12 @@
+[Unit]
+Description=Provision Cloudflare hosting and publish yt-narrator videos
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/eiichi/src/yt-narrator-dashboard
+Environment=PATH=/home/eiichi/.local/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=/usr/bin/node /home/eiichi/src/yt-narrator-dashboard/scripts/automate-publication.mjs --limit 2
+TimeoutStartSec=90min
+UMask=0077

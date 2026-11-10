@@ -37,5 +37,11 @@
         "NarrationCoordinator"
       ]
     }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "PUBLIC_VIDEOS",
+      "bucket_name": "yt-narrator-public-videos"
+    }
   ]
 }
