@@ -18,6 +18,7 @@
       <input id="login-password" type="password" required autocomplete="current-password" maxlength="200">
       <button class="btn btn-primary" type="submit">ログイン</button>
       <p id="login-error" role="alert"></p>
+      <p><a href="/help.html" target="_blank" rel="noopener">使い方・構成図を見る</a></p>
     </form>
   </section>
   <div class="app-container hidden" id="app-shell">
@@ -30,7 +31,8 @@
           <p class="sub-title">YouTube自動要約・ナレーション・漫画／図解生成パイプラインのリアルタイム可視化ツール</p>
         </div>
       </div>
-      <div class="header-right" style="display: flex; gap: 8px;">
+      <div class="header-right" style="display: flex; gap: 8px; flex-wrap: wrap;">
+        <a class="btn btn-secondary" href="/help.html" target="_blank" rel="noopener">ヘルプ・構成図</a>
         <a class="btn btn-secondary" href="/publications.html">公開動画の管理</a>
         <a class="btn btn-secondary" href="/watch/" target="_blank" rel="noopener">動画ライブラリ</a>
         <button id="logout-btn" class="btn btn-secondary">ログアウト</button>
