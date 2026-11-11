@@ -12,7 +12,7 @@
 
 ## Cloudflare公開の自動化
 
-2026-11-10時点のアカウントはR2が未有効で、Cloudflare APIが10042を返している。ユーザーsystemdの自動処理は起動済みで、15分ごとに確認する。契約の有効化そのものは[Cloudflare Dashboard](https://dash.cloudflare.com/)の対象アカウント → Storage & databases → R2 → Overviewから、アカウント所有者が条件・料金を確認して行う。
+2026-11-10時点ではR2が未有効で、Cloudflare APIが10042を返していた。2026-11-11にユーザーによるR2有効化を検知し、バケット作成・Workerのデプロイが自動で完了した。ユーザーsystemdの自動処理は起動済みで、15分ごとに公開サイクルを実行する。契約の有効化そのものは[Cloudflare Dashboard](https://dash.cloudflare.com/)の対象アカウント → Storage & databases → R2 → Overviewから、アカウント所有者が条件・料金を確認して行う。
 
 有効化後は追加コマンドなしで、次の処理を順番に行う。
 
@@ -44,7 +44,7 @@ journalctl --user -u yt-narrator-videos.service -n 50
 
 バケットをインターネットへ直接公開する必要はなく、公開マニフェストを確認するWorkerだけが動画を配信する。R2には利用量に応じた課金があるため、[公式料金表](https://developers.cloudflare.com/r2/pricing/)と[契約手順](https://developers.cloudflare.com/r2/get-started/)を確認する。契約や支払情報の操作をスクリプトから行うことはない。
 
-本番公開URLは `https://yt-narrator-dashboard.eiichi-okamine.workers.dev/watch/`。現在はR2の契約有効化待ちであり、本番動画の配信完了を意味しない。ローカルR2では実案件の作成・保存・再生・シークを検証済み。
+本番公開URLは `https://yt-narrator-dashboard.eiichi-okamine.workers.dev/watch/`。2026-11-11からR2と本番Workerの接続が有効になり、新方式画像と音声がそろった案件を順次公開する。直近の状態はautomation.jsonとサービスログで確認する。
 
 ## 動画作成と公開
 
@@ -136,4 +136,4 @@ systemctl --user disable --now yt-narrator-videos.timer
 
 ## 検証
 
-自動テスト34件・ブラウザテスト4件が成功。R2未有効時に作成・デプロイしないこと、有効化後の作成→デプロイ→API確認の順序、既存バケットと既存公開環境の再利用、失敗時に公開へ進まないことをテストする。R2の契約有効化後の本番操作は、その時点でサービスの実行履歴から確認する。
+自動テスト34件・ブラウザテスト6件が成功。R2未有効時に作成・デプロイしないこと、有効化後の作成→デプロイ→API確認の順序、既存バケットと既存公開環境の再利用、失敗時に公開へ進まないことをテストする。2026-11-11には本番R2への実案件アップロード、公開一覧、匿名でのMP4再生、1080×1920の映像、1.5倍速、シーク、HTTP 206の部分取得、管理APIが匿名アクセスを401で拒否することを実際の配信環境で確認した。

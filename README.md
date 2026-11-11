@@ -8,7 +8,7 @@ Google Driveに保存されたYouTube動画由来の原稿・音声・画像を�
 
 [構成図付きのHTML説明書](public/help.html)を用意しています。管理画面の「ヘルプ・構成図」、ログイン画面、公開動画の管理画面、動画ライブラリから参照できます。ブラウザでは `/help.html` を開いてください。Cloudflare・Drive・PC・Modal・R2の関係、3つの生成フロー、自動実行の時間、再生速度・公開／非公開の操作、保存形式、再試行とFAQをまとめています。図はHTML内のSVGで、外部ライブラリ不要・印刷／PDF保存にも対応します。
 
-ローカル管理画面： http://localhost:8787/help.html ／ 動画の試作環境： http://localhost:8792/help.html 。本番はR2有効化後の自動デプロイに含まれます。ヘルプは設計・操作の説明で、稼働状況のリアルタイム表示ではありません。
+ローカル管理画面： http://localhost:8787/help.html ／ 動画の試作環境： http://localhost:8792/help.html 。[本番ヘルプ](https://yt-narrator-dashboard.eiichi-okamine.workers.dev/help.html)にも反映済みです。ヘルプは設計・操作の説明で、稼働状況のリアルタイム表示ではありません。
 
 ## 接続先
 
@@ -24,7 +24,7 @@ Google Driveに保存されたYouTube動画由来の原稿・音声・画像を�
 
 新方式の画像と完成音声をFFmpegで **1080×1920・H.264/AACのMP4** にし、Cloudflare R2へ保存して `/watch/` から一覧・連続再生する機能を追加しました。検索、前後移動、0.5〜2倍の再生速度、繰り返し、個別共有URL、管理者による非公開化に対応します。管理画面とDriveの原稿は公開しません。
 
-**現在のアカウントはR2が未有効のため、本番の動画公開は有効化待ちです。自動処理は起動済みです。** 15分ごとにR2を確認し、Cloudflare Dashboardでの契約有効化を検知すると、バケット作成・Workerデプロイ・動画化・アップロード・一覧公開を自動実行します。以後は1回最大2件を順次公開し、非公開にした案件は自動再公開しません。
+**2026-11-11にR2の有効化を検知し、バケット作成・Workerの本番デプロイが自動で完了しました。** [公開動画ライブラリ](https://yt-narrator-dashboard.eiichi-okamine.workers.dev/watch/)から閲覧できます。PCの自動処理が15分ごとに画像・音声がそろった未公開案件を確認し、1回最大2件を動画化・アップロードして順次公開します。非公開にした案件は自動再公開しません。
 
 ```bash
 npm run publish:videos -- --project DRIVE_FOLDER_ID --render-only --limit 1
