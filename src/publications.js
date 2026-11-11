@@ -1,7 +1,8 @@
-import {assertProjectAccess, listFolderFiles} from "./drive.js";
+import {assertProjectAccess, listFolderFiles, driveFetch} from "./drive.js";
 import {getCatalog} from "./catalog.js";
 import {textHash} from "./visuals.js";
 import {HttpError, readJson} from "./http.js";
+import {youtubeUrl} from "../public/youtube-links.js";
 
 export const VIDEO_VERSION = "shorts-still-aac-v2";
 export const VIDEO_LIMIT = 25 * 1024 * 1024;
@@ -10,8 +11,19 @@ const hashPattern = /^[a-f0-9]{64}$/;
 const bucket = env => { if (!env.PUBLIC_VIDEOS) throw new HttpError(503, "Cloudflare R2の有効化とPUBLIC_VIDEOSバインディングが必要です"); return env.PUBLIC_VIDEOS; };
 const manifestKey = id => `catalog/${id}.json`;
 const assetKey = (id, hash, kind) => `assets/${id}/${hash}.${kind === "video" ? "mp4" : "jpg"}`;
-const publicEntry = entry => ({id: entry.id, title: entry.title, sourceHash: entry.sourceHash, duration: entry.duration, width: 1080, height: 1920, createdAt: entry.createdAt, updatedAt: entry.updatedAt, videoUrl: `/watch/media/${entry.id}/${entry.sourceHash}.mp4`, posterUrl: `/watch/media/${entry.id}/${entry.sourceHash}.jpg`});
+const publicEntry = entry => ({id: entry.id, title: entry.title, sourceHash: entry.sourceHash, duration: entry.duration, width: 1080, height: 1920, createdAt: entry.createdAt, updatedAt: entry.updatedAt, youtubeUrl: youtubeUrl(entry.youtubeUrl), videoUrl: `/watch/media/${entry.id}/${entry.sourceHash}.mp4`, posterUrl: `/watch/media/${entry.id}/${entry.sourceHash}.jpg`});
 function entryOf(object) { try { return JSON.parse(object?.customMetadata?.entry || "null"); } catch (_) { return null; } }
+const youtubeRevision = files => { const file = files.find(f => f.name === "youtube.json"); return file ? `${file.id}:${file.modifiedTime || ""}:${file.size || ""}` : "missing"; };
+async function sourceLink(files, env) {
+  const file = files.find(f => f.name === "youtube.json");
+  let metadata = null;
+  if (file) {
+    const response = await driveFetch(`files/${file.id}?alt=media`, env);
+    if (!response.ok) throw new HttpError(502, "元動画情報の取得に失敗しました");
+    try { metadata = await response.json(); } catch (_) { throw new HttpError(422, "元動画情報のJSONが不正です"); }
+  }
+  return {youtubeUrl: youtubeUrl(metadata), youtubeMetadataRevision: youtubeRevision(files), sourceMetadataVersion: 1};
+}
 
 export async function publicationSource(projectId, files) {
   const image = files.find(f => f.name === "visual_summary.png" && f.mimeType === "image/png");
@@ -76,7 +88,7 @@ async function readAsset(request, limit) {
 export async function publicationAdminRoute(request, env) {
   const url = new URL(request.url);
   if (url.pathname === "/api/publications" && request.method === "GET") return Response.json(await listPublications(env, url.searchParams.get("cursor"), true));
-  const match = url.pathname.match(/^\/api\/publications\/([A-Za-z0-9_-]{10,200})(?:\/(prepare|unpublish|assets\/([a-f0-9]{64})\/(video|poster)))?$/);
+  const match = url.pathname.match(/^\/api\/publications\/([A-Za-z0-9_-]{10,200})(?:\/(prepare|unpublish|refresh-source|assets\/([a-f0-9]{64})\/(video|poster)))?$/);
   if (!match) throw new HttpError(404, "公開操作が見つかりません");
   const [, projectId, action, requestedHash, kind] = match;
   const store = bucket(env);
@@ -89,11 +101,24 @@ export async function publicationAdminRoute(request, env) {
     await store.delete(manifestKey(id));
     return Response.json({success: true});
   }
-  const source = await publicationSource(projectId, await listFolderFiles(projectId, env));
+  const files = await listFolderFiles(projectId, env);
+  if (action === "refresh-source") {
+    const existing = await store.head(manifestKey(id));
+    const previous = entryOf(existing);
+    if (!previous || await store.head(`controls/${id}.json`)) throw new HttpError(409, "公開中の動画だけ元動画情報を更新できます");
+    const entry = {...previous, ...await sourceLink(files, env)};
+    const saved = await store.put(manifestKey(id), JSON.stringify(entry), {onlyIf: {etagMatches: existing.etag}, httpMetadata: {contentType: "application/json"}, customMetadata: {entry: JSON.stringify(entry)}});
+    if (!saved) throw new HttpError(409, "公開状態が変わりました。再確認してください");
+    return Response.json({success: true, item: publicEntry(entry)});
+  }
+  const source = await publicationSource(projectId, files);
   const body = kind ? null : await readJson(request);
   const hidden = await store.head(`controls/${id}.json`);
   if (hidden && !kind && body?.republish !== true) throw new HttpError(409, "非公開にした案件です。再公開を明示してください");
-  if (action === "prepare") return Response.json({success: true, ...source, published: entryOf(await store.head(manifestKey(id)))?.sourceHash === source.sourceHash});
+  if (action === "prepare") {
+    const previous = entryOf(await store.head(manifestKey(id)));
+    return Response.json({success: true, ...source, published: previous?.sourceHash === source.sourceHash, sourceMetadataNeedsRefresh: !!previous && (previous.sourceMetadataVersion !== 1 || previous.youtubeMetadataRevision !== youtubeRevision(files))});
+  }
   if ((requestedHash || body?.sourceHash) !== source.sourceHash || !hashPattern.test(source.sourceHash)) throw new HttpError(409, "素材が変更されました。動画を作り直してください");
   if (kind) {
     // 再公開用の素材アップロード自体は許可する。公開されるのは最後のPOST成功後のみ。
@@ -112,7 +137,7 @@ export async function publicationAdminRoute(request, env) {
   const project = (await getCatalog(env))?.projects?.find(p => p.id === projectId);
   if (!project) throw new HttpError(409, "カタログを同期してください");
   const previous = entryOf(await store.head(manifestKey(id)));
-  const entry = {id, projectId, title: project.name.slice(0, 180), sourceHash: source.sourceHash, duration: body.duration, createdAt: previous?.createdAt || new Date().toISOString(), updatedAt: new Date().toISOString()};
+  const entry = {id, projectId, title: project.name.slice(0, 180), sourceHash: source.sourceHash, duration: body.duration, createdAt: previous?.createdAt || new Date().toISOString(), updatedAt: new Date().toISOString(), ...await sourceLink(files, env)};
   await store.put(manifestKey(id), JSON.stringify(entry), {httpMetadata: {contentType: "application/json"}, customMetadata: {entry: JSON.stringify(entry)}});
   if (hidden) await store.delete(`controls/${id}.json`);
   return Response.json({success: true, item: publicEntry(entry)});

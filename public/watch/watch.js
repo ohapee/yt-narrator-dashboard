@@ -1,5 +1,11 @@
+import {youtubeAppUrl} from '../youtube-links.js';
+import {drawQr, publicWatchUrl} from './mobile.js';
 const $ = id => document.getElementById(id);
 const player = $("player");
+const libraryMobileUrl = publicWatchUrl(undefined, location.origin);
+$("library-mobile-link").href = libraryMobileUrl;
+drawQr($("library-qr"), libraryMobileUrl);
+$("source-youtube").addEventListener("click", () => player.pause());
 const playbackRates = [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2];
 const playbackRateKey = "yt-narrator.playback-rate";
 let playbackRate = 1;
@@ -50,6 +56,14 @@ async function select(item, play) {
   const generation = ++selecting;
   player.pause(); current = item; player.src = item.videoUrl; player.poster = item.posterUrl;
   applyPlaybackRate();
+  const sourceUrl = youtubeAppUrl(item.youtubeUrl, navigator.userAgent);
+  $("source-youtube").hidden = !sourceUrl;
+  $("source-note").hidden = !sourceUrl;
+  if (sourceUrl) $("source-youtube").href = sourceUrl; else $("source-youtube").removeAttribute("href");
+  const selectedMobileUrl = publicWatchUrl(item.id, location.origin);
+  $("selected-mobile-link").href = selectedMobileUrl;
+  drawQr($("selected-qr"), selectedMobileUrl);
+  $("selected-mobile").hidden = false;
   $("empty").classList.add("hidden"); $("now-title").textContent = title(item.title); $("message").textContent = "再生ボタンで開始できます。";
   history.replaceState(null, "", `?video=${encodeURIComponent(item.id)}`); renderList();
   if (play) {
@@ -68,7 +82,7 @@ $("previous").addEventListener("click", () => advance(-1)); $("next").addEventLi
 $("repeat").addEventListener("change", updateButtons); $("search").addEventListener("input", renderList);
 player.addEventListener("ended", () => { if ($("continuous").checked) advance(1); });
 player.addEventListener("error", () => { $("message").textContent = "この動画を読み込めませんでした。再読み込みするか、次の動画を選んでください。"; });
-$("share").addEventListener("click", async () => { try { await navigator.clipboard.writeText(location.href); $("message").textContent = "リンクをコピーしました。"; } catch (_) { $("message").textContent = "アドレスバーのURLをコピーして共有できます。"; } });
+$("share").addEventListener("click", async () => { try { await navigator.clipboard.writeText(publicWatchUrl(current.id, location.origin)); $("message").textContent = "リンクをコピーしました。"; } catch (_) { $("message").textContent = "アドレスバーのURLをコピーして共有できます。"; } });
 document.addEventListener("keydown", event => { if (["INPUT", "TEXTAREA", "SELECT", "VIDEO"].includes(document.activeElement?.tagName)) return; if (["ArrowLeft", "ArrowRight"].includes(event.key)) { event.preventDefault(); advance(event.key === "ArrowLeft" ? -1 : 1); } });
 try {
   const seen = new Set(); let cursor = "";

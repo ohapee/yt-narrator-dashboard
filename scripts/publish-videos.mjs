@@ -55,7 +55,13 @@ for (const project of candidates) {
       try {ready=await json(`/api/publications/${project.id}/prepare`,{republish});}
       catch(error) {if(error.status===409 && !projectId) continue;throw error;}
       if (ready.sourceHash !== source.sourceHash) throw new Error('素材が更新されました');
-      if (ready.published) continue;
+      if (ready.published) {
+        if (ready.sourceMetadataNeedsRefresh) {
+          await json(`/api/publications/${project.id}/refresh-source`, {});
+          console.log(`元動画リンク更新: ${project.name}`);
+        }
+        continue;
+      }
     }
     processed++; console.log(`${dryRun?'対象確認':renderOnly?'動画作成':'動画作成・公開'}: ${project.name}`);
     if(dryRun)continue;
