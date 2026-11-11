@@ -54,6 +54,11 @@ export async function publicVideoRoute(request, env) {
   const head = await store.head(key);
   if (!head) throw new HttpError(404, "素材がありません");
   const headers = {"Content-Type": extension === "mp4" ? "video/mp4" : "image/jpeg", "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff", "Accept-Ranges": "bytes", ETag: head.httpEtag};
+  if (extension === "mp4" && url.searchParams.get("download") === "1") {
+    const title = Array.from(String(entry.title || "動画").toWellFormed()).slice(0, 100).join("").replace(/[\u0000-\u001f\u007f<>:"/\\|?*]/g, "_").trim().replace(/[. ]+$/, "") || "動画";
+    const filename = encodeURIComponent(title + ".mp4").replace(/[!'()*]/g, character => "%" + character.charCodeAt(0).toString(16).toUpperCase());
+    headers["Content-Disposition"] = `attachment; filename="yt-narrator-${id}.mp4"; filename*=UTF-8''${filename}`;
+  }
   let range;
   const rawRange = request.headers.get("Range");
   const ifRange = request.headers.get("If-Range");

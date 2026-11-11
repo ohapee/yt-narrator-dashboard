@@ -55,6 +55,10 @@ function renderList() {
 async function select(item, play) {
   const generation = ++selecting;
   player.pause(); current = item; player.src = item.videoUrl; player.poster = item.posterUrl;
+  const downloadUrl = new URL(item.videoUrl, location.origin);
+  downloadUrl.searchParams.set("download", "1");
+  $("download-video").href = downloadUrl.pathname + downloadUrl.search;
+  $("download-video").hidden = false;
   applyPlaybackRate();
   const sourceUrl = youtubeAppUrl(item.youtubeUrl, navigator.userAgent);
   $("source-youtube").hidden = !sourceUrl;

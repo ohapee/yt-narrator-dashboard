@@ -65,3 +65,14 @@ test('a source-link refresh cannot recreate a concurrently unpublished manifest'
  const put=env.PUBLIC_VIDEOS.put.bind(env.PUBLIC_VIDEOS);t.mock.method(env.PUBLIC_VIDEOS,'put',async(key,body,options)=>{if(options?.onlyIf)await env.PUBLIC_VIDEOS.delete(key);return put(key,body,options);});
  await assert.rejects(publicationAdminRoute(request(`/api/publications/${projectId}/refresh-source`,{}),env),/公開状態が変わりました/);assert.equal(await env.PUBLIC_VIDEOS.head(key),null);
 });
+
+test('MP4 downloads include a safe UTF-8 filename, keep range support and require a published manifest',async t=>{
+ const env=setup(t),entry=await seed(env);entry.title='20261111_動画 "テスト"\r\n../素材';
+ await env.PUBLIC_VIDEOS.put(`catalog/${entry.id}.json`,'{}',{customMetadata:{entry:JSON.stringify(entry)}});
+ const path=`/watch/media/${entry.id}/${entry.sourceHash}.mp4`;
+ assert.equal((await publicVideoRoute(request(path,undefined,'HEAD'),env)).headers.has('Content-Disposition'),false);
+ const response=await publicVideoRoute(request(path+'?download=1',undefined,'GET',{Range:'bytes=0-9'}),env);
+ assert.equal(response.status,206);assert.equal((await response.arrayBuffer()).byteLength,10);
+ const disposition=response.headers.get('Content-Disposition');assert.match(disposition,/^attachment; filename="yt-narrator-[a-f0-9]{32}\.mp4"; filename\*=UTF-8''/);assert.doesNotMatch(disposition,/[\r\n]/);assert.match(decodeURIComponent(disposition.split("UTF-8''")[1]),/動画.*テスト.*\.mp4$/);
+ await env.PUBLIC_VIDEOS.delete(`catalog/${entry.id}.json`);await assert.rejects(publicVideoRoute(request(path+'?download=1',undefined,'GET'),env),/公開されていません/);
+});
