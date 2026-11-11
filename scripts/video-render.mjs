@@ -8,6 +8,17 @@ const run = (command, args, timeout) => {
 export function probeMedia(file) {
   return JSON.parse(run('ffprobe', ['-v','error','-show_entries','format=duration:stream=width,height,codec_name,codec_type','-of','json',file], 30000));
 }
+export function renderPublicAudio(video, output) {
+  if (!fs.existsSync(output)) {
+    const temporary = output + '.partial.m4a';
+    run('ffmpeg', ['-v','error','-y','-i',video,'-map','0:a:0','-vn','-c:a','copy','-movflags','+faststart',temporary], 60000);
+    fs.renameSync(temporary, output);
+  }
+  const result = probeMedia(output);
+  if (result.streams.length !== 1 || result.streams[0].codec_name !== 'aac' || result.streams[0].codec_type !== 'audio' || Math.abs(Number(result.format.duration) - Number(probeMedia(video).format.duration)) > 0.3) throw new Error('音声専用ファイルの検証に失敗しました');
+  if (fs.statSync(output).size > 25 * 1024 * 1024) throw new Error('音声が25MBを超えています');
+  return output;
+}
 export function renderPublicVideo(image, audio, output, poster) {
   const duration = Number(probeMedia(audio).format?.duration);
   if (!Number.isFinite(duration) || duration < 0.1 || duration > 7200) throw new Error('音声の長さが不正です');

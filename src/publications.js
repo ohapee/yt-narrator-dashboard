@@ -10,8 +10,8 @@ const idPattern = /^[a-f0-9]{32}$/;
 const hashPattern = /^[a-f0-9]{64}$/;
 const bucket = env => { if (!env.PUBLIC_VIDEOS) throw new HttpError(503, "Cloudflare R2の有効化とPUBLIC_VIDEOSバインディングが必要です"); return env.PUBLIC_VIDEOS; };
 const manifestKey = id => `catalog/${id}.json`;
-const assetKey = (id, hash, kind) => `assets/${id}/${hash}.${kind === "video" ? "mp4" : "jpg"}`;
-const publicEntry = entry => ({id: entry.id, title: entry.title, sourceHash: entry.sourceHash, duration: entry.duration, width: 1080, height: 1920, createdAt: entry.createdAt, updatedAt: entry.updatedAt, youtubeUrl: youtubeUrl(entry.youtubeUrl), videoUrl: `/watch/media/${entry.id}/${entry.sourceHash}.mp4`, posterUrl: `/watch/media/${entry.id}/${entry.sourceHash}.jpg`});
+const assetKey = (id, hash, kind) => `assets/${id}/${hash}.${{video: "mp4", poster: "jpg", audio: "m4a"}[kind]}`;
+const publicEntry = entry => ({id: entry.id, title: entry.title, sourceHash: entry.sourceHash, duration: entry.duration, width: 1080, height: 1920, createdAt: entry.createdAt, updatedAt: entry.updatedAt, youtubeUrl: youtubeUrl(entry.youtubeUrl), videoUrl: `/watch/media/${entry.id}/${entry.sourceHash}.mp4`, posterUrl: `/watch/media/${entry.id}/${entry.sourceHash}.jpg`, audioUrl: entry.audioReady ? `/watch/media/${entry.id}/${entry.sourceHash}.m4a` : null});
 function entryOf(object) { try { return JSON.parse(object?.customMetadata?.entry || "null"); } catch (_) { return null; } }
 const youtubeRevision = files => { const file = files.find(f => f.name === "youtube.json"); return file ? `${file.id}:${file.modifiedTime || ""}:${file.size || ""}` : "missing"; };
 async function sourceLink(files, env) {
@@ -44,16 +44,16 @@ export async function publicVideoRoute(request, env) {
   const url = new URL(request.url);
   if (!["GET", "HEAD"].includes(request.method)) throw new HttpError(405, "GETまたはHEADを使用してください");
   if (url.pathname === "/watch/data") return Response.json(await listPublications(env, url.searchParams.get("cursor")), {headers: {"Cache-Control": "no-store"}});
-  const match = url.pathname.match(/^\/watch\/media\/([a-f0-9]{32})\/([a-f0-9]{64})\.(mp4|jpg)$/);
+  const match = url.pathname.match(/^\/watch\/media\/([a-f0-9]{32})\/([a-f0-9]{64})\.(mp4|jpg|m4a)$/);
   if (!match) throw new HttpError(404, "動画が見つかりません");
   const [, id, hash, extension] = match;
   const store = bucket(env);
   const entry = entryOf(await store.head(manifestKey(id)));
-  if (!entry || entry.sourceHash !== hash) throw new HttpError(404, "動画は公開されていません");
-  const key = assetKey(id, hash, extension === "mp4" ? "video" : "poster");
+  if (!entry || entry.sourceHash !== hash || extension === "m4a" && !entry.audioReady) throw new HttpError(404, "動画は公開されていません");
+  const key = assetKey(id, hash, {mp4: "video", jpg: "poster", m4a: "audio"}[extension]);
   const head = await store.head(key);
   if (!head) throw new HttpError(404, "素材がありません");
-  const headers = {"Content-Type": extension === "mp4" ? "video/mp4" : "image/jpeg", "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff", "Accept-Ranges": "bytes", ETag: head.httpEtag};
+  const headers = {"Content-Type": {mp4: "video/mp4", jpg: "image/jpeg", m4a: "audio/mp4"}[extension], "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff", "Accept-Ranges": "bytes", ETag: head.httpEtag};
   if (extension === "mp4" && url.searchParams.get("download") === "1") {
     const title = Array.from(String(entry.title || "動画").toWellFormed()).slice(0, 100).join("").replace(/[\u0000-\u001f\u007f<>:"/\\|?*]/g, "_").trim().replace(/[. ]+$/, "") || "動画";
     const filename = encodeURIComponent(title + ".mp4").replace(/[!'()*]/g, character => "%" + character.charCodeAt(0).toString(16).toUpperCase());
@@ -93,7 +93,7 @@ async function readAsset(request, limit) {
 export async function publicationAdminRoute(request, env) {
   const url = new URL(request.url);
   if (url.pathname === "/api/publications" && request.method === "GET") return Response.json(await listPublications(env, url.searchParams.get("cursor"), true));
-  const match = url.pathname.match(/^\/api\/publications\/([A-Za-z0-9_-]{10,200})(?:\/(prepare|unpublish|refresh-source|assets\/([a-f0-9]{64})\/(video|poster)))?$/);
+  const match = url.pathname.match(/^\/api\/publications\/([A-Za-z0-9_-]{10,200})(?:\/(prepare|unpublish|refresh-source|enable-audio|assets\/([a-f0-9]{64})\/(video|poster|audio)))?$/);
   if (!match) throw new HttpError(404, "公開操作が見つかりません");
   const [, projectId, action, requestedHash, kind] = match;
   const store = bucket(env);
@@ -122,15 +122,24 @@ export async function publicationAdminRoute(request, env) {
   if (hidden && !kind && body?.republish !== true) throw new HttpError(409, "非公開にした案件です。再公開を明示してください");
   if (action === "prepare") {
     const previous = entryOf(await store.head(manifestKey(id)));
-    return Response.json({success: true, ...source, published: previous?.sourceHash === source.sourceHash, sourceMetadataNeedsRefresh: !!previous && (previous.sourceMetadataVersion !== 1 || previous.youtubeMetadataRevision !== youtubeRevision(files))});
+    return Response.json({success: true, ...source, published: previous?.sourceHash === source.sourceHash, audioReady: !!previous?.audioReady, sourceMetadataNeedsRefresh: !!previous && (previous.sourceMetadataVersion !== 1 || previous.youtubeMetadataRevision !== youtubeRevision(files))});
   }
   if ((requestedHash || body?.sourceHash) !== source.sourceHash || !hashPattern.test(source.sourceHash)) throw new HttpError(409, "素材が変更されました。動画を作り直してください");
+  if (action === "enable-audio") {
+    const existing = await store.head(manifestKey(id)), previous = entryOf(existing);
+    const audio = await store.head(assetKey(id, source.sourceHash, "audio"));
+    if (!previous || previous.sourceHash !== source.sourceHash || !audio || audio.customMetadata?.sourceHash !== source.sourceHash) throw new HttpError(409, "公開中の動画と音声素材が必要です");
+    const entry = {...previous, audioReady: true};
+    const saved = await store.put(manifestKey(id), JSON.stringify(entry), {onlyIf: {etagMatches: existing.etag}, httpMetadata: {contentType: "application/json"}, customMetadata: {entry: JSON.stringify(entry)}});
+    if (!saved) throw new HttpError(409, "公開状態が変わりました。再確認してください");
+    return Response.json({success: true, item: publicEntry(entry)});
+  }
   if (kind) {
     // 再公開用の素材アップロード自体は許可する。公開されるのは最後のPOST成功後のみ。
-    const contentType = kind === "video" ? "video/mp4" : "image/jpeg";
+    const contentType = {video: "video/mp4", poster: "image/jpeg", audio: "audio/mp4"}[kind];
     if (request.headers.get("Content-Type") !== contentType) throw new HttpError(415, "素材形式が不正です");
-    const bytes = await readAsset(request, kind === "video" ? VIDEO_LIMIT : 1024 * 1024);
-    if (kind === "video" ? new TextDecoder().decode(bytes.subarray(4, 8)) !== "ftyp" : bytes[0] !== 255 || bytes[1] !== 216 || bytes[2] !== 255) throw new HttpError(400, "素材ファイルが不正です");
+    const bytes = await readAsset(request, kind === "poster" ? 1024 * 1024 : VIDEO_LIMIT);
+    if (kind !== "poster" ? new TextDecoder().decode(bytes.subarray(4, 8)) !== "ftyp" : bytes[0] !== 255 || bytes[1] !== 216 || bytes[2] !== 255) throw new HttpError(400, "素材ファイルが不正です");
     const key = assetKey(id, source.sourceHash, kind);
     const existing = await store.head(key);
     if (!existing) await store.put(key, bytes, {httpMetadata: {contentType}, customMetadata: {sourceHash: source.sourceHash}});
@@ -142,7 +151,8 @@ export async function publicationAdminRoute(request, env) {
   const project = (await getCatalog(env))?.projects?.find(p => p.id === projectId);
   if (!project) throw new HttpError(409, "カタログを同期してください");
   const previous = entryOf(await store.head(manifestKey(id)));
-  const entry = {id, projectId, title: project.name.slice(0, 180), sourceHash: source.sourceHash, duration: body.duration, createdAt: previous?.createdAt || new Date().toISOString(), updatedAt: new Date().toISOString(), ...await sourceLink(files, env)};
+  const audio = await store.head(assetKey(id, source.sourceHash, "audio"));
+  const entry = {id, projectId, title: project.name.slice(0, 180), sourceHash: source.sourceHash, duration: body.duration, audioReady: audio?.customMetadata?.sourceHash === source.sourceHash, createdAt: previous?.createdAt || new Date().toISOString(), updatedAt: new Date().toISOString(), ...await sourceLink(files, env)};
   await store.put(manifestKey(id), JSON.stringify(entry), {httpMetadata: {contentType: "application/json"}, customMetadata: {entry: JSON.stringify(entry)}});
   if (hidden) await store.delete(`controls/${id}.json`);
   return Response.json({success: true, item: publicEntry(entry)});

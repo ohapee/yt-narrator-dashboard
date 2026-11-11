@@ -76,3 +76,15 @@ test('MP4 downloads include a safe UTF-8 filename, keep range support and requir
  const disposition=response.headers.get('Content-Disposition');assert.match(disposition,/^attachment; filename="yt-narrator-[a-f0-9]{32}\.mp4"; filename\*=UTF-8''/);assert.doesNotMatch(disposition,/[\r\n]/);assert.match(decodeURIComponent(disposition.split("UTF-8''")[1]),/動画.*テスト.*\.mp4$/);
  await env.PUBLIC_VIDEOS.delete(`catalog/${entry.id}.json`);await assert.rejects(publicVideoRoute(request(path+'?download=1',undefined,'GET'),env),/公開されていません/);
 });
+
+test('audio-only media stays private until enabled, supports ranges, and is revoked with the video',async t=>{
+ const env=setup(t),entry=await seed(env);await env.PUBLIC_VIDEOS.put(`catalog/${entry.id}.json`,'{}',{customMetadata:{entry:JSON.stringify(entry)}});
+ const path=`/watch/media/${entry.id}/${entry.sourceHash}.m4a`;
+ await assert.rejects(publicVideoRoute(request(path,undefined,'GET'),env),/公開されていません/);
+ await assert.rejects(publicationAdminRoute(request(`/api/publications/${projectId}/enable-audio`,{sourceHash:entry.sourceHash}),env),/音声素材/);
+ await env.PUBLIC_VIDEOS.put(`assets/${entry.id}/${entry.sourceHash}.m4a`,Buffer.alloc(100,1),{customMetadata:{sourceHash:entry.sourceHash}});
+ const result=await(await publicationAdminRoute(request(`/api/publications/${projectId}/enable-audio`,{sourceHash:entry.sourceHash}),env)).json();assert.equal(result.item.audioUrl,path);
+ const audio=await publicVideoRoute(request(path,undefined,'GET',{Range:'bytes=0-9'}),env);assert.equal(audio.status,206);assert.equal(audio.headers.get('Content-Type'),'audio/mp4');assert.equal((await audio.arrayBuffer()).byteLength,10);
+ await publicationAdminRoute(request(`/api/publications/${projectId}/unpublish`),env);await assert.rejects(publicVideoRoute(request(path,undefined,'GET'),env),/公開されていません/);
+ await assert.rejects(publicationAdminRoute(request(`/api/publications/${projectId}/enable-audio`,{sourceHash:entry.sourceHash}),env),/非公開/);
+});

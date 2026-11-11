@@ -139,7 +139,7 @@ export default {
       if (pathname === "/watch/data" || pathname.startsWith("/watch/media/")) return await publicVideoRoute(request, env);
       if (pathname.startsWith("/api/auth/")) return await authRoute(request, env);
       if (pathname.startsWith("/api/")) {
-        const bodyLimit = request.method === "PUT" && /^\/api\/publications\/[A-Za-z0-9_-]{10,200}\/assets\/[a-f0-9]{64}\/(video|poster)$/.test(pathname) ? VIDEO_LIMIT : request.method === "POST" && /^\/api\/visuals\/[A-Za-z0-9_-]{10,200}$/.test(pathname) ? 17 * 1024 * 1024 : 262144;
+        const bodyLimit = request.method === "PUT" && /^\/api\/publications\/[A-Za-z0-9_-]{10,200}\/assets\/[a-f0-9]{64}\/(video|poster|audio)$/.test(pathname) ? VIDEO_LIMIT : request.method === "POST" && /^\/api\/visuals\/[A-Za-z0-9_-]{10,200}$/.test(pathname) ? 17 * 1024 * 1024 : 262144;
         await requireAuthentication(request, env, bodyLimit);
         if (["/api/sync-catalog", "/api/cron/process-narration"].includes(pathname) && request.method !== "POST" || pathname.endsWith("/video-mapping") && request.method !== "POST") {
           return Response.json({ success: false, error: "POSTを使用してください" }, { status: 405, headers: { Allow: "POST" } });

@@ -1,0 +1,30 @@
+import {test,expect} from '@playwright/test';
+import fs from 'node:fs';
+import {execFileSync} from 'node:child_process';
+import {renderPublicAudio} from '../../scripts/video-render.mjs';
+let video,audio;
+test.beforeAll(()=>{
+ const dir=fs.mkdtempSync('/tmp/yt-narrator-background-');const file=dir+'/sample.mp4';
+ execFileSync('ffmpeg',['-v','error','-f','lavfi','-i','color=blue:s=64x64:r=5','-f','lavfi','-i','sine=frequency=500:sample_rate=44100','-t','8','-c:v','libx264','-pix_fmt','yuv420p','-c:a','aac','-movflags','+faststart',file]);
+ video=fs.readFileSync(file);audio=fs.readFileSync(renderPublicAudio(file,dir+'/audio.m4a'));
+});
+test('audio mode preserves position and speed, exposes media controls and advances to the next track',async({page})=>{
+ const errors=[];page.on('pageerror',error=>errors.push(error.message));
+ await page.addInitScript(()=>{window.mediaHandlers={};if(navigator.mediaSession){const original=navigator.mediaSession.setActionHandler.bind(navigator.mediaSession);navigator.mediaSession.setActionHandler=(name,handler)=>{window.mediaHandlers[name]=handler;original(name,handler);};}});
+ const entries=['a','b'].map((id,index)=>({id:id.repeat(32),title:index?'20261111_次の音声':'20261112_最初の音声',duration:8,videoUrl:`/watch/media/${id}.mp4`,audioUrl:`/watch/media/${id}.m4a`,posterUrl:`/watch/media/${id}.jpg`}));
+ await page.route('**/watch/data',route=>route.fulfill({contentType:'application/json',body:JSON.stringify({success:true,configured:true,items:entries,cursor:null})}));
+ await page.route(/\/watch\/media\/[ab]\.mp4$/,route=>route.fulfill({contentType:'video/mp4',body:video}));
+ await page.route(/\/watch\/media\/[ab]\.m4a$/,route=>route.fulfill({contentType:'audio/mp4',body:audio}));
+ await page.route(/\/watch\/media\/[ab]\.jpg$/,route=>route.fulfill({status:404,body:''}));
+ await page.goto('/watch/');await page.locator('#list .card').first().click();await page.waitForFunction(()=>document.getElementById('player').currentTime>.1);
+ await page.locator('#player').evaluate(player=>{player.currentTime=2;});await page.getByLabel('音声で聴く（バックグラウンド）').check();
+ await page.waitForFunction(()=>{const a=document.getElementById('audio-player');return a.currentTime>=2&&!a.paused;});
+ await expect(page.locator('#player')).toBeHidden();expect(await page.locator('#player').evaluate(v=>v.paused)).toBe(true);
+ await page.getByLabel('再生速度').selectOption('1.5');expect(await page.locator('#audio-player').evaluate(a=>a.playbackRate)).toBe(1.5);
+ expect(await page.evaluate(()=>navigator.mediaSession.metadata.title)).toBe('最初の音声');
+ await page.evaluate(()=>window.mediaHandlers.pause());expect(await page.locator('#audio-player').evaluate(a=>a.paused)).toBe(true);
+ await page.evaluate(()=>window.mediaHandlers.nexttrack());await expect(page.locator('#audio-player')).toHaveAttribute('src','/watch/media/b.m4a');await page.waitForFunction(()=>document.getElementById('audio-player').currentTime>.1);
+ expect(await page.locator('#audio-player').evaluate(a=>a.playbackRate)).toBe(1.5);expect(await page.evaluate(()=>navigator.mediaSession.metadata.title)).toBe('次の音声');
+ await page.getByLabel('音声で聴く（バックグラウンド）').uncheck();await expect(page.locator('#player')).toBeVisible();expect(await page.locator('#audio-player').evaluate(a=>a.paused)).toBe(true);
+ expect(errors).toEqual([]);
+});
